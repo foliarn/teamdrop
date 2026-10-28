@@ -1,0 +1,31 @@
+services:
+  proxy:
+    image: nginx:stable-alpine
+    ports:
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - app1
+      - app2
+
+  app1:
+    build: ./echo
+    environment:
+      INSTANCE: app1
+
+  app2:
+    build: ./echo
+    environment:
+      INSTANCE: app2
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+
+volumes:
+  dbdata:
