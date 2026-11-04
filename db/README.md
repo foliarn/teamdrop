@@ -34,6 +34,7 @@ Dev passwords are in `.env.example`. Never use them outside a local machine.
 | `npm run db:fixtures -- teamdrop_test` | Same, into another database (here `teamdrop_test`). |
 | `npm run db:types` | Regenerates `apps/api/src/data/internal/generated/database.ts` from `teamdrop_dev` with kysely-codegen (owner URL read from `.env`). |
 | `npm run db:jobs` | Installs pg_cron in `teamdrop_dev` and (re)schedules the database jobs (`db/scripts/schedule-jobs.sh`, idempotent). |
+| `npm run db:generate -- --seed <seed>` | Generates a realistic dataset (10,000 users, 2 years by default) into `teamdrop_dev` (`db/generator/README.md`). |
 | `npm run test:data` | Runs the data layer integration tests (`*.int-spec.ts`) against `teamdrop_test` (run `npm run db:reset:test` first). |
 
 On Windows, Docker runs in WSL: the npm scripts call `docker compose`, so run them where Docker is available, or run the same command in WSL with `docker compose -f db/docker-compose.yml exec -T db bash /workspace/db/scripts/load-fixtures.sh teamdrop_test`.
@@ -51,6 +52,7 @@ On Windows, Docker runs in WSL: the npm scripts call `docker compose`, so run th
 | `migrations/` | dbmate migrations (`extensions`, `roles`, `common`). |
 | `schema.sql` | Schema dump written by dbmate (generated, do not edit). |
 | `tests/` | pgTAP tests. |
+| `generator/` | Deterministic dataset generator (BR-DATA-01, BR-DATA-02), also a Claude skill (`.claude/skills/teamdrop-dataset`). |
 | `seeds/reference/`, `seeds/fixtures/` | Seed SQL files, loaded in alphabetical order. |
 
 ## Notes

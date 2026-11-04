@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "TeamDrop dataset generator (db/generator/README.md). No dependencies of its own: it uses pg from the workspace."
+}

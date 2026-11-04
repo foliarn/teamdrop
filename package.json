@@ -16,6 +16,7 @@
     "db:fixtures": "docker compose -f db/docker-compose.yml exec -T -e PGPASSWORD=teamdrop_owner_dev db bash /workspace/db/scripts/load-fixtures.sh",
     "db:types": "kysely-codegen --dialect postgres --env-file .env --url \"env(DATABASE_URL_OWNER)\" --out-file apps/api/src/data/internal/generated/database.ts --exclude-pattern \"{schema_migrations,spatial_ref_sys,geometry_columns,geography_columns,raster_columns,raster_overviews}\" --date-parser string",
     "test:data": "npm run test:data -w apps/api",
-    "db:jobs": "docker compose -f db/docker-compose.yml exec -T db bash /workspace/db/scripts/schedule-jobs.sh"
+    "db:jobs": "docker compose -f db/docker-compose.yml exec -T db bash /workspace/db/scripts/schedule-jobs.sh",
+    "db:generate": "node db/generator/generate.ts"
   }
 }
