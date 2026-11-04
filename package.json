@@ -17,6 +17,8 @@
     "db:types": "kysely-codegen --dialect postgres --env-file .env --url \"env(DATABASE_URL_OWNER)\" --out-file apps/api/src/data/internal/generated/database.ts --exclude-pattern \"{schema_migrations,spatial_ref_sys,geometry_columns,geography_columns,raster_columns,raster_overviews}\" --date-parser string",
     "test:data": "npm run test:data -w apps/api",
     "db:jobs": "docker compose -f db/docker-compose.yml exec -T db bash /workspace/db/scripts/schedule-jobs.sh",
-    "db:generate": "node db/generator/generate.ts"
+    "db:generate": "node db/generator/generate.ts",
+    "docs:data": "node docs/database/tools/generate-reference.mjs",
+    "docs:erd-check": "node docs/database/tools/compare-erd.mjs"
   }
 }

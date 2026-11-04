@@ -81,7 +81,8 @@ Do not write SQL and do not work around the missing method. Ask by writing a dat
 
 ## 8. Available repositories
 
-Filled in as each batch lands. The TSDoc on each method is the reference.
+The TSDoc on each method is the reference. Every method, with its signature and TSDoc, is listed in
+`docs/database/data-layer-reference.md` (generated: `npm run docs:data`).
 
 - `ReferenceRepository`: lists sports, skill levels and rating systems, searches municipalities, and manages sports from the back office.
 - `AuthRepository`: creates accounts with a password or Google, finds logins by email, links Google, rotates refresh tokens and consumes account tokens. Sign-up and Google linking refuse a permanently banned email or Google identity (`IDENTITY_BANNED`). The login lookups return `activeBan`: refuse the login while it is set.
@@ -127,3 +128,14 @@ if (!sent.deduplicated) {
 
 - `docs/database/business-rules.md` is the master. If this guide and that file disagree, the business rules win.
 - Put the rule ID in a comment above the code that implements it, and in the test name, for example `it('BR-REG-02: refuses a second active registration', ...)`.
+
+## 10. Changelog for developers
+
+- **Batch 8 (2026-11-04)**: method index generated from the TSDoc (`data-layer-reference.md`); ERD checked against the schema (`npm run docs:erd-check`).
+- **Batch 7**: dataset generator (`npm run db:generate`, `db/generator/README.md`), also a Claude skill. Generated accounts log in with `<username>@dataset.teamdrop.test` / `password123`.
+- **Batch 6**: `GdprRepository` (consents, export, erasure, inactivity). Breaking: `OccurrenceDetails.owner` and `ReportTargetDetails` (event) `ownerId` can be `null` when the owner's account was erased; owner-only actions on such an event raise `INVALID_STATE`. Schedule two jobs in NestJS: `eraseDueAccounts` (nightly, then notify) and the export worker (`claimNextExport`, `buildExportData`, `completeExport`, `listExpiredExportFiles`).
+- **Batch 5**: `AnalyticsRepository`. The aggregates are refreshed by pg_cron in the database (`npm run db:jobs`); you schedule nothing for them.
+- **Batch 4**: `StatsRepository`, `BadgeRepository`. Badge awarding is yours (BR-GAM-02), with `getBadgeProgress`.
+- **Batch 3**: `CheerRepository`, `ReportRepository`, `SanctionRepository`, `AuditLogRepository`. New errors `CHEER_NOT_ALLOWED`, `ALREADY_CHEERED`, `IDENTITY_BANNED`. `LoginInfo` and `findUserByGoogleSubject` return `activeBan`: refuse the login while it is set. Circle invitation rejection, participant removal and dispute resolution now write audit entries.
+- **Batch 2**: `MessageRepository`, `NotificationRepository`, `ChatEventListener`. New error `NOT_CONVERSATION_MEMBER`.
+- **Batches 0 to 1D**: reference data, accounts, social graph, events, registrations, attendance.

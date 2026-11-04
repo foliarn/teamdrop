@@ -122,6 +122,7 @@ Do not implement a workaround while waiting.
 | Domain vocabulary | `docs/database/glossary.md` |
 | How to call the data layer | `docs/database/data-layer-guide.md` |
 | Public data API (read-only for you) | `apps/api/src/data/index.ts` |
+| Every data method with its TSDoc (generated) | `docs/database/data-layer-reference.md` |
 | Data model diagram | `docs/database/diagram/teamdrop-erd.drawio` |
 | SQL migrations (read-only for you) | `db/migrations/` |
 | Full schema dump (read-only, best place to check a column) | `db/schema.sql` |

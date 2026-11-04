@@ -49,7 +49,7 @@ On Windows, Docker runs in WSL: the npm scripts call `docker compose`, so run th
 | `scripts/reset-test.sh` | Runs inside the container: resets `teamdrop_test` and migrates it. |
 | `scripts/schedule-jobs.sh` | Runs inside the container as `postgres`: creates pg_cron in `teamdrop_dev` and schedules the jobs. |
 | `scripts/load-fixtures.sh` | Runs inside the container: loads the seed folders into a database. |
-| `migrations/` | dbmate migrations (`extensions`, `roles`, `common`). |
+| `migrations/` | dbmate migrations: extensions, roles, common functions, reference, accounts, social, events, attendance (batches 0 to 1D), messaging and notifications (2), cheers and moderation (3), badges (4), analytics (5), GDPR (6). |
 | `schema.sql` | Schema dump written by dbmate (generated, do not edit). |
 | `tests/` | pgTAP tests. |
 | `generator/` | Deterministic dataset generator (BR-DATA-01, BR-DATA-02), also a Claude skill (`.claude/skills/teamdrop-dataset`). |
