@@ -256,3 +256,10 @@ export class DisputeAlreadyExistsError extends DataError {
     super('DISPUTE_ALREADY_EXISTS', message);
   }
 }
+
+/** The user has no access to the conversation: not a member of its circle or community, not an organizer, and no active registration for its occurrence (BR-MSG-01). */
+export class NotConversationMemberError extends DataError {
+  constructor(message = 'No access to this conversation') {
+    super('NOT_CONVERSATION_MEMBER', message);
+  }
+}

@@ -10,6 +10,9 @@ export { VenueRepository } from './repositories/venue.repository';
 export { EventRepository } from './repositories/event.repository';
 export { RegistrationRepository } from './repositories/registration.repository';
 export { AttendanceRepository } from './repositories/attendance.repository';
+export { MessageRepository } from './repositories/message.repository';
+export { NotificationRepository } from './repositories/notification.repository';
+export { ChatEventListener } from './chat-event-listener';
 export {
   DataError,
   InvalidRecurrenceError,
@@ -47,6 +50,7 @@ export {
   AttendanceWindowClosedError,
   DisputeWindowClosedError,
   DisputeAlreadyExistsError,
+  NotConversationMemberError,
 } from './errors';
 export type {
   LocalDate,
@@ -170,3 +174,37 @@ export type {
   ResolveDisputeOutcome,
   OpenDisputeEntry,
 } from './types/attendance.types';
+export type {
+  ConversationKind,
+  ReactionCode,
+  ConversationTarget,
+  MessageSender,
+  ReplyPreview,
+  ReactionSummary,
+  ChatMessage,
+  SendMessageInput,
+  SendMessageOutcome,
+  DeleteMessageOutcome,
+  ReactionOutcome,
+  ConversationTargetInfo,
+  MyConversation,
+  UnreadCounts,
+  MessageReader,
+  MarkReadOutcome,
+  ChatEventType,
+  ChatEvent,
+} from './types/messaging.types';
+export { REACTION_CODES, MESSAGE_MAX_LENGTH } from './types/messaging.types';
+export type {
+  NotificationType,
+  CreateNotificationTypeInput,
+  UpdateNotificationTypePatch,
+  NotificationPayload,
+  PushTarget,
+  NotifyOutcome,
+  AppNotification,
+  NotificationPreference,
+  NotificationPreferencePatch,
+  SavePushSubscriptionInput,
+  MyPushSubscription,
+} from './types/notification.types';

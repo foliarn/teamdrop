@@ -219,6 +219,17 @@ CREATE TYPE public.community_role AS ENUM (
 
 
 --
+-- Name: conversation_kind; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.conversation_kind AS ENUM (
+    'occurrence',
+    'circle',
+    'community'
+);
+
+
+--
 -- Name: dispute_status; Type: TYPE; Schema: public; Owner: -
 --
 
@@ -375,6 +386,48 @@ CREATE TYPE public.visibility_level AS ENUM (
     'friends',
     'only_me'
 );
+
+
+--
+-- Name: create_circle_conversation(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.create_circle_conversation() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  INSERT INTO conversation (kind, circle_id) VALUES ('circle', NEW.id);
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION create_circle_conversation(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.create_circle_conversation() IS 'Creates the chat of a new circle (BR-SOC-08, BR-MSG-01).';
+
+
+--
+-- Name: create_community_conversation(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.create_community_conversation() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  INSERT INTO conversation (kind, community_id) VALUES ('community', NEW.id);
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION create_community_conversation(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.create_community_conversation() IS 'Creates the chat of a new community (BR-SOC-09, BR-MSG-01).';
 
 
 --
@@ -989,6 +1042,126 @@ COMMENT ON COLUMN public.community_member.joined_at IS 'When the user joined; ow
 
 
 --
+-- Name: conversation; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.conversation (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    kind public.conversation_kind NOT NULL,
+    occurrence_id uuid,
+    circle_id uuid,
+    community_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ck_conversation_kind_target CHECK ((((kind = 'occurrence'::public.conversation_kind) = (occurrence_id IS NOT NULL)) AND ((kind = 'circle'::public.conversation_kind) = (circle_id IS NOT NULL)) AND ((kind = 'community'::public.conversation_kind) = (community_id IS NOT NULL)))),
+    CONSTRAINT ck_conversation_one_target CHECK ((num_nonnulls(occurrence_id, circle_id, community_id) = 1))
+);
+
+
+--
+-- Name: TABLE conversation; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.conversation IS 'A chat attached to exactly one occurrence, circle or community (BR-MSG-01).';
+
+
+--
+-- Name: COLUMN conversation.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.conversation.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN conversation.kind; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.conversation.kind IS 'occurrence, circle or community; must match the target column that is set (BR-MSG-01).';
+
+
+--
+-- Name: COLUMN conversation.occurrence_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.conversation.occurrence_id IS 'Occurrence of an occurrence chat, created on first need (BR-EVT-03, BR-MSG-01). Purged 1 year after the occurrence (BR-MSG-05).';
+
+
+--
+-- Name: COLUMN conversation.circle_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.conversation.circle_id IS 'Circle of a circle chat, created with the circle (BR-SOC-08, BR-MSG-01). Deleted with the circle (BR-MSG-06).';
+
+
+--
+-- Name: COLUMN conversation.community_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.conversation.community_id IS 'Community of a community chat, created with the community (BR-SOC-09, BR-MSG-01). Deleted with the community (BR-MSG-06).';
+
+
+--
+-- Name: COLUMN conversation.created_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.conversation.created_at IS 'When the conversation was created.';
+
+
+--
+-- Name: conversation_member; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.conversation_member (
+    conversation_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    last_read_message_id uuid,
+    muted boolean DEFAULT false NOT NULL,
+    joined_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE conversation_member; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.conversation_member IS 'Per-user state in a conversation: read pointer and mute. Access itself is derived from circles, communities, organizers and registrations (BR-MSG-01, BR-MSG-02).';
+
+
+--
+-- Name: COLUMN conversation_member.conversation_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.conversation_member.conversation_id IS 'The conversation.';
+
+
+--
+-- Name: COLUMN conversation_member.user_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.conversation_member.user_id IS 'The user.';
+
+
+--
+-- Name: COLUMN conversation_member.last_read_message_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.conversation_member.last_read_message_id IS 'Last message read by the user; gives unread counts and "seen by" (BR-MSG-02).';
+
+
+--
+-- Name: COLUMN conversation_member.muted; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.conversation_member.muted IS 'When true, the user gets no push for this conversation but still sees unread counts (BR-NOT-01).';
+
+
+--
+-- Name: COLUMN conversation_member.joined_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.conversation_member.joined_at IS 'When the row was created (first read or mute).';
+
+
+--
 -- Name: event; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1572,6 +1745,136 @@ COMMENT ON COLUMN public.follow.accepted_at IS 'When the follow was accepted; NU
 
 
 --
+-- Name: message; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.message (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    conversation_id uuid NOT NULL,
+    sender_id uuid,
+    client_message_id uuid NOT NULL,
+    reply_to_message_id uuid,
+    body text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    edited_at timestamp with time zone,
+    CONSTRAINT ck_message_body_max_length CHECK ((char_length(body) <= 4000)),
+    CONSTRAINT ck_message_body_not_blank CHECK ((body ~ '[^[:space:]]'::text)),
+    CONSTRAINT ck_message_not_reply_to_self CHECK (((reply_to_message_id IS NULL) OR (reply_to_message_id <> id)))
+);
+
+
+--
+-- Name: TABLE message; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.message IS 'A chat message. Hard deleted when removed (BR-MSG-02, BR-MSG-03).';
+
+
+--
+-- Name: COLUMN message.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.message.id IS 'Primary key, UUID v7: time-ordered, used for ordering, pagination and read pointers (BR-TECH-08).';
+
+
+--
+-- Name: COLUMN message.conversation_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.message.conversation_id IS 'The conversation the message belongs to (BR-MSG-01).';
+
+
+--
+-- Name: COLUMN message.sender_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.message.sender_id IS 'Author; NULL after erasure, shown as "deleted user" (BR-GDP-04).';
+
+
+--
+-- Name: COLUMN message.client_message_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.message.client_message_id IS 'Id generated by the client, unique per sender: a re-sent message is deduplicated (BR-TECH-08).';
+
+
+--
+-- Name: COLUMN message.reply_to_message_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.message.reply_to_message_id IS 'Message this one replies to, in the same conversation; NULL when the target was deleted (BR-MSG-02).';
+
+
+--
+-- Name: COLUMN message.body; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.message.body IS 'Text of the message: not blank, at most 4000 characters (BR-MSG-02). Never logged.';
+
+
+--
+-- Name: COLUMN message.created_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.message.created_at IS 'When the message was sent.';
+
+
+--
+-- Name: COLUMN message.edited_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.message.edited_at IS 'When the author last edited the message, NULL if never edited (BR-MSG-02).';
+
+
+--
+-- Name: message_reaction; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.message_reaction (
+    message_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    emoji text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ck_message_reaction_emoji CHECK ((emoji = ANY (ARRAY['thumbs_up'::text, 'thumbs_down'::text, 'laugh'::text, 'surprised'::text, 'angry'::text, 'smile'::text, 'heart'::text])))
+);
+
+
+--
+-- Name: TABLE message_reaction; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.message_reaction IS 'A reaction of a user to a message (BR-MSG-02).';
+
+
+--
+-- Name: COLUMN message_reaction.message_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.message_reaction.message_id IS 'The message; reactions are deleted with it (BR-MSG-03).';
+
+
+--
+-- Name: COLUMN message_reaction.user_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.message_reaction.user_id IS 'The user who reacted.';
+
+
+--
+-- Name: COLUMN message_reaction.emoji; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.message_reaction.emoji IS 'Reaction code from the fixed list: thumbs_up, thumbs_down, laugh, surprised, angry, smile, heart. The front end shows the glyph (BR-MSG-02, BR-TECH-12).';
+
+
+--
+-- Name: COLUMN message_reaction.created_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.message_reaction.created_at IS 'When the reaction was added.';
+
+
+--
 -- Name: municipality; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1641,6 +1944,251 @@ COMMENT ON COLUMN public.municipality.center IS 'Center point of the municipalit
 --
 
 COMMENT ON COLUMN public.municipality.parent_municipality_id IS 'City an arrondissement belongs to (BR-ACC-19); NULL for ordinary municipalities.';
+
+
+--
+-- Name: notification; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notification (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    user_id uuid NOT NULL,
+    notification_type_id uuid NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    read_at timestamp with time zone,
+    CONSTRAINT ck_notification_payload_object CHECK ((jsonb_typeof(payload) = 'object'::text))
+);
+
+
+--
+-- Name: TABLE notification; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.notification IS 'An in-app notification, kept 90 days (BR-NOT-01, BR-GDP-09).';
+
+
+--
+-- Name: COLUMN notification.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification.id IS 'Primary key, UUID v7 (time-ordered, used for pagination).';
+
+
+--
+-- Name: COLUMN notification.user_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification.user_id IS 'The recipient.';
+
+
+--
+-- Name: COLUMN notification.notification_type_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification.notification_type_id IS 'The notification type (BR-NOT-01).';
+
+
+--
+-- Name: COLUMN notification.payload; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification.payload IS 'JSON object of ids needed to display the notification (event, occurrence, user, conversation). Never emails, birth dates, tokens or message bodies.';
+
+
+--
+-- Name: COLUMN notification.created_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification.created_at IS 'When the notification was created; purged after 90 days (BR-GDP-09).';
+
+
+--
+-- Name: COLUMN notification.read_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification.read_at IS 'When the user read it, NULL while unread.';
+
+
+--
+-- Name: notification_preference; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notification_preference (
+    user_id uuid NOT NULL,
+    notification_type_id uuid NOT NULL,
+    push_enabled boolean NOT NULL,
+    in_app_enabled boolean NOT NULL
+);
+
+
+--
+-- Name: TABLE notification_preference; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.notification_preference IS 'A user override of the defaults of one notification type, per channel. No row means the type defaults (BR-NOT-01, BR-ACC-15).';
+
+
+--
+-- Name: COLUMN notification_preference.user_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_preference.user_id IS 'The user.';
+
+
+--
+-- Name: COLUMN notification_preference.notification_type_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_preference.notification_type_id IS 'The notification type; a type in use cannot be deleted.';
+
+
+--
+-- Name: COLUMN notification_preference.push_enabled; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_preference.push_enabled IS 'Whether the user wants push notifications of this type (BR-NOT-01).';
+
+
+--
+-- Name: COLUMN notification_preference.in_app_enabled; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_preference.in_app_enabled IS 'Whether the user wants in-app notifications of this type (BR-NOT-01).';
+
+
+--
+-- Name: notification_type; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notification_type (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    code text NOT NULL,
+    name text NOT NULL,
+    default_push boolean NOT NULL,
+    default_in_app boolean NOT NULL
+);
+
+
+--
+-- Name: TABLE notification_type; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.notification_type IS 'Reference list of notification types, managed from the back office (BR-NOT-01, BR-TECH-12).';
+
+
+--
+-- Name: COLUMN notification_type.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_type.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN notification_type.code; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_type.code IS 'Stable English code used by the code and the front end i18n files (BR-TECH-12).';
+
+
+--
+-- Name: COLUMN notification_type.name; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_type.name IS 'English name, shown until the front end has a translation (BR-TECH-12).';
+
+
+--
+-- Name: COLUMN notification_type.default_push; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_type.default_push IS 'Push channel value for users without a preference row (BR-NOT-01).';
+
+
+--
+-- Name: COLUMN notification_type.default_in_app; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_type.default_in_app IS 'In-app channel value for users without a preference row (BR-NOT-01).';
+
+
+--
+-- Name: push_subscription; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.push_subscription (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    user_id uuid NOT NULL,
+    endpoint text NOT NULL,
+    p256dh text NOT NULL,
+    auth_secret text NOT NULL,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_used_at timestamp with time zone
+);
+
+
+--
+-- Name: TABLE push_subscription; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.push_subscription IS 'A Web Push subscription, one per device (unique endpoint) (BR-NOT-01).';
+
+
+--
+-- Name: COLUMN push_subscription.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.push_subscription.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN push_subscription.user_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.push_subscription.user_id IS 'The user currently logged in on the device.';
+
+
+--
+-- Name: COLUMN push_subscription.endpoint; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.push_subscription.endpoint IS 'Push service URL of the device, unique: a device has one subscription (BR-NOT-01).';
+
+
+--
+-- Name: COLUMN push_subscription.p256dh; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.push_subscription.p256dh IS 'Public key of the browser, used to encrypt the payload (Web Push).';
+
+
+--
+-- Name: COLUMN push_subscription.auth_secret; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.push_subscription.auth_secret IS 'Authentication secret of the browser (Web Push). Never logged.';
+
+
+--
+-- Name: COLUMN push_subscription.user_agent; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.push_subscription.user_agent IS 'Optional browser description, to name the device in the settings.';
+
+
+--
+-- Name: COLUMN push_subscription.created_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.push_subscription.created_at IS 'When the subscription was saved.';
+
+
+--
+-- Name: COLUMN push_subscription.last_used_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.push_subscription.last_used_at IS 'When a push was last sent to it, NULL if never.';
 
 
 --
@@ -2778,6 +3326,22 @@ ALTER TABLE ONLY public.community_member
 
 
 --
+-- Name: conversation pk_conversation; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation
+    ADD CONSTRAINT pk_conversation PRIMARY KEY (id);
+
+
+--
+-- Name: conversation_member pk_conversation_member; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation_member
+    ADD CONSTRAINT pk_conversation_member PRIMARY KEY (conversation_id, user_id);
+
+
+--
 -- Name: event pk_event; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2818,11 +3382,59 @@ ALTER TABLE ONLY public.follow
 
 
 --
+-- Name: message pk_message; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.message
+    ADD CONSTRAINT pk_message PRIMARY KEY (id);
+
+
+--
+-- Name: message_reaction pk_message_reaction; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.message_reaction
+    ADD CONSTRAINT pk_message_reaction PRIMARY KEY (message_id, user_id, emoji);
+
+
+--
 -- Name: municipality pk_municipality; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.municipality
     ADD CONSTRAINT pk_municipality PRIMARY KEY (id);
+
+
+--
+-- Name: notification pk_notification; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification
+    ADD CONSTRAINT pk_notification PRIMARY KEY (id);
+
+
+--
+-- Name: notification_preference pk_notification_preference; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_preference
+    ADD CONSTRAINT pk_notification_preference PRIMARY KEY (user_id, notification_type_id);
+
+
+--
+-- Name: notification_type pk_notification_type; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_type
+    ADD CONSTRAINT pk_notification_type PRIMARY KEY (id);
+
+
+--
+-- Name: push_subscription pk_push_subscription; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.push_subscription
+    ADD CONSTRAINT pk_push_subscription PRIMARY KEY (id);
 
 
 --
@@ -2978,6 +3590,30 @@ ALTER TABLE ONLY public.auth_identity
 
 
 --
+-- Name: conversation uq_conversation_circle_id; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation
+    ADD CONSTRAINT uq_conversation_circle_id UNIQUE (circle_id);
+
+
+--
+-- Name: conversation uq_conversation_community_id; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation
+    ADD CONSTRAINT uq_conversation_community_id UNIQUE (community_id);
+
+
+--
+-- Name: conversation uq_conversation_occurrence_id; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation
+    ADD CONSTRAINT uq_conversation_occurrence_id UNIQUE (occurrence_id);
+
+
+--
 -- Name: event_occurrence uq_event_occurrence_event_original; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2986,11 +3622,35 @@ ALTER TABLE ONLY public.event_occurrence
 
 
 --
+-- Name: message uq_message_sender_client_message_id; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.message
+    ADD CONSTRAINT uq_message_sender_client_message_id UNIQUE (sender_id, client_message_id);
+
+
+--
 -- Name: municipality uq_municipality_insee_code; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.municipality
     ADD CONSTRAINT uq_municipality_insee_code UNIQUE (insee_code);
+
+
+--
+-- Name: notification_type uq_notification_type_code; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_type
+    ADD CONSTRAINT uq_notification_type_code UNIQUE (code);
+
+
+--
+-- Name: push_subscription uq_push_subscription_endpoint; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.push_subscription
+    ADD CONSTRAINT uq_push_subscription_endpoint UNIQUE (endpoint);
 
 
 --
@@ -3171,6 +3831,20 @@ CREATE INDEX ix_community_name_trgm ON public.community USING gin (public.immuta
 
 
 --
+-- Name: ix_conversation_member_last_read_message_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_conversation_member_last_read_message_id ON public.conversation_member USING btree (last_read_message_id);
+
+
+--
+-- Name: ix_conversation_member_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_conversation_member_user_id ON public.conversation_member USING btree (user_id);
+
+
+--
 -- Name: ix_event_circle_circle_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3304,6 +3978,34 @@ CREATE INDEX ix_follow_followed_id ON public.follow USING btree (followed_id);
 
 
 --
+-- Name: ix_message_conversation_id_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_message_conversation_id_id ON public.message USING btree (conversation_id, id);
+
+
+--
+-- Name: ix_message_reaction_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_message_reaction_user_id ON public.message_reaction USING btree (user_id);
+
+
+--
+-- Name: ix_message_reply_to_message_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_message_reply_to_message_id ON public.message USING btree (reply_to_message_id);
+
+
+--
+-- Name: ix_message_sender_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_message_sender_id ON public.message USING btree (sender_id);
+
+
+--
 -- Name: ix_municipality_center; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3322,6 +4024,48 @@ CREATE INDEX ix_municipality_name_trgm ON public.municipality USING gin (public.
 --
 
 CREATE INDEX ix_municipality_parent_municipality_id ON public.municipality USING btree (parent_municipality_id);
+
+
+--
+-- Name: ix_notification_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_notification_created_at ON public.notification USING btree (created_at);
+
+
+--
+-- Name: ix_notification_notification_type_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_notification_notification_type_id ON public.notification USING btree (notification_type_id);
+
+
+--
+-- Name: ix_notification_preference_notification_type_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_notification_preference_notification_type_id ON public.notification_preference USING btree (notification_type_id);
+
+
+--
+-- Name: ix_notification_unread; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_notification_unread ON public.notification USING btree (user_id) WHERE (read_at IS NULL);
+
+
+--
+-- Name: ix_notification_user_id_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_notification_user_id_id ON public.notification USING btree (user_id, id);
+
+
+--
+-- Name: ix_push_subscription_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_push_subscription_user_id ON public.push_subscription USING btree (user_id);
 
 
 --
@@ -3500,6 +4244,20 @@ CREATE UNIQUE INDEX uq_registration_active ON public.registration USING btree (o
 
 
 --
+-- Name: circle trg_circle_create_conversation; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_circle_create_conversation AFTER INSERT ON public.circle FOR EACH ROW EXECUTE FUNCTION public.create_circle_conversation();
+
+
+--
+-- Name: community trg_community_create_conversation; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_community_create_conversation AFTER INSERT ON public.community FOR EACH ROW EXECUTE FUNCTION public.create_community_conversation();
+
+
+--
 -- Name: event_occurrence trg_event_occurrence_set_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3648,6 +4406,54 @@ ALTER TABLE ONLY public.community_member
 
 
 --
+-- Name: conversation fk_conversation_circle_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation
+    ADD CONSTRAINT fk_conversation_circle_id FOREIGN KEY (circle_id) REFERENCES public.circle(id) ON DELETE CASCADE;
+
+
+--
+-- Name: conversation fk_conversation_community_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation
+    ADD CONSTRAINT fk_conversation_community_id FOREIGN KEY (community_id) REFERENCES public.community(id) ON DELETE CASCADE;
+
+
+--
+-- Name: conversation_member fk_conversation_member_conversation_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation_member
+    ADD CONSTRAINT fk_conversation_member_conversation_id FOREIGN KEY (conversation_id) REFERENCES public.conversation(id) ON DELETE CASCADE;
+
+
+--
+-- Name: conversation_member fk_conversation_member_last_read_message_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation_member
+    ADD CONSTRAINT fk_conversation_member_last_read_message_id FOREIGN KEY (last_read_message_id) REFERENCES public.message(id) ON DELETE SET NULL;
+
+
+--
+-- Name: conversation_member fk_conversation_member_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation_member
+    ADD CONSTRAINT fk_conversation_member_user_id FOREIGN KEY (user_id) REFERENCES public.user_account(id) ON DELETE CASCADE;
+
+
+--
+-- Name: conversation fk_conversation_occurrence_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.conversation
+    ADD CONSTRAINT fk_conversation_occurrence_id FOREIGN KEY (occurrence_id) REFERENCES public.event_occurrence(id) ON DELETE CASCADE;
+
+
+--
 -- Name: event_circle fk_event_circle_circle_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3792,11 +4598,91 @@ ALTER TABLE ONLY public.follow
 
 
 --
+-- Name: message fk_message_conversation_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.message
+    ADD CONSTRAINT fk_message_conversation_id FOREIGN KEY (conversation_id) REFERENCES public.conversation(id) ON DELETE CASCADE;
+
+
+--
+-- Name: message_reaction fk_message_reaction_message_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.message_reaction
+    ADD CONSTRAINT fk_message_reaction_message_id FOREIGN KEY (message_id) REFERENCES public.message(id) ON DELETE CASCADE;
+
+
+--
+-- Name: message_reaction fk_message_reaction_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.message_reaction
+    ADD CONSTRAINT fk_message_reaction_user_id FOREIGN KEY (user_id) REFERENCES public.user_account(id) ON DELETE CASCADE;
+
+
+--
+-- Name: message fk_message_reply_to_message_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.message
+    ADD CONSTRAINT fk_message_reply_to_message_id FOREIGN KEY (reply_to_message_id) REFERENCES public.message(id) ON DELETE SET NULL;
+
+
+--
+-- Name: message fk_message_sender_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.message
+    ADD CONSTRAINT fk_message_sender_id FOREIGN KEY (sender_id) REFERENCES public.user_account(id) ON DELETE SET NULL;
+
+
+--
 -- Name: municipality fk_municipality_parent_municipality_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.municipality
     ADD CONSTRAINT fk_municipality_parent_municipality_id FOREIGN KEY (parent_municipality_id) REFERENCES public.municipality(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: notification fk_notification_notification_type_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification
+    ADD CONSTRAINT fk_notification_notification_type_id FOREIGN KEY (notification_type_id) REFERENCES public.notification_type(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: notification_preference fk_notification_preference_notification_type_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_preference
+    ADD CONSTRAINT fk_notification_preference_notification_type_id FOREIGN KEY (notification_type_id) REFERENCES public.notification_type(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: notification_preference fk_notification_preference_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_preference
+    ADD CONSTRAINT fk_notification_preference_user_id FOREIGN KEY (user_id) REFERENCES public.user_account(id) ON DELETE CASCADE;
+
+
+--
+-- Name: notification fk_notification_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification
+    ADD CONSTRAINT fk_notification_user_id FOREIGN KEY (user_id) REFERENCES public.user_account(id) ON DELETE CASCADE;
+
+
+--
+-- Name: push_subscription fk_push_subscription_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.push_subscription
+    ADD CONSTRAINT fk_push_subscription_user_id FOREIGN KEY (user_id) REFERENCES public.user_account(id) ON DELETE CASCADE;
 
 
 --
@@ -3987,4 +4873,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261102170413'),
     ('20261102211402'),
     ('20261102211403'),
-    ('20261102220118');
+    ('20261102220118'),
+    ('20261104210000'),
+    ('20261104210100');

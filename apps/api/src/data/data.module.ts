@@ -13,6 +13,10 @@ import { VenueRepository } from './repositories/venue.repository';
 import { EventRepository } from './repositories/event.repository';
 import { RegistrationRepository } from './repositories/registration.repository';
 import { AttendanceRepository } from './repositories/attendance.repository';
+import { MessageRepository } from './repositories/message.repository';
+import { NotificationRepository } from './repositories/notification.repository';
+import { CHAT_LISTENER_URL, ChatEventListener } from './chat-event-listener';
+import { requiredEnv } from './internal/env';
 
 // Repositories are added to both `providers` and `exports` as batches land.
 @Global()
@@ -30,6 +34,13 @@ import { AttendanceRepository } from './repositories/attendance.repository';
     EventRepository,
     RegistrationRepository,
     AttendanceRepository,
+    MessageRepository,
+    NotificationRepository,
+    {
+      provide: CHAT_LISTENER_URL,
+      useFactory: () => requiredEnv('DATABASE_URL_APP'),
+    },
+    ChatEventListener,
   ],
   exports: [
     ReferenceRepository,
@@ -43,6 +54,9 @@ import { AttendanceRepository } from './repositories/attendance.repository';
     EventRepository,
     RegistrationRepository,
     AttendanceRepository,
+    MessageRepository,
+    NotificationRepository,
+    ChatEventListener,
   ],
 })
 export class DataModule implements OnModuleDestroy {

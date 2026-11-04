@@ -5,6 +5,7 @@ const CONSTRAINT_VIOLATION_CODES = new Set([
   '23514', // check_violation
   '23P01', // exclusion_violation
   '23503', // foreign_key_violation
+  '23001', // restrict_violation (ON DELETE RESTRICT)
 ]);
 
 /** True when `err` looks like a PostgreSQL driver error (has a SQLSTATE `code`). */

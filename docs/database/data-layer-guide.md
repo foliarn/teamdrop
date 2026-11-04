@@ -93,6 +93,23 @@ Filled in as each batch lands. The TSDoc on each method is the reference.
 - `VenueRepository`: creates, edits and deletes saved venues, and searches the venues a viewer may see (public ones and the viewer's private ones), by distance or by name.
 - `EventRepository`: creates and publishes events; edits a series, one occurrence, or "this and following" (which splits the series); cancels events and occurrences; manages co-organizers, ownership and target circles; searches occurrences of a date range (at most 31 days) and reads one occurrence with its viewer role; lists my upcoming, organized and past events. Occurrences are materialized on first need, and the hidden location and circle-priority rules are applied to every read.
 - `RegistrationRepository`: registers for an occurrence (automatic or approval mode, waitlist, guests), cancels (late-cancellation flag and waitlist promotion), approves, declines, accepts from the waitlist, removes participants, replaces guests, and lists participants (blocked users left out, guest names for organizers), the waitlist and pending approvals.
+- `AttendanceRepository`: starts and completes due occurrences (jobs you call on a timer), completes an occurrence early, sets attendance (`attended`, `no_show`, `excused`) until one hour after the end, lists attendance, opens a dispute of a `no_show` within 7 days, resolves disputes (upheld or rejected) and lists open disputes for moderators. Completion erases guest names.
+- `MessageRepository`: finds the conversation of a circle, community or occurrence (an occurrence chat is created on first need), sends messages with deduplication on `clientMessageId`, replies, edits, hard-deletes, reacts (fixed list: `thumbs_up`, `thumbs_down`, `laugh`, `surprised`, `angry`, `smile`, `heart`), lists messages by pages, marks read, mutes, lists my conversations, counts unread messages and lists who has read a message. Access is checked for you: circle members, community members, the event's organizers and users with an active registration (`pending_approval`, `confirmed`, `waitlisted`). Messages and reactions of users blocked with the viewer are hidden. `sendMessage` returns `recipientUserIds` and `pushRecipientUserIds` (muted members left out): use them to send pushes. You check who may delete a message (author, circle owner or admins, community owner or moderators, moderators).
+- `NotificationRepository`: creates in-app notifications and returns the push targets according to each user's preferences (`notify`, `listPushTargets`), lists, counts, marks read and deletes in-app notifications, reads and sets preferences per type and channel, saves and deletes push subscriptions (one per device), and manages notification types from the back office (a type in use cannot be deleted). You send the pushes.
+- `ChatEventListener`: real-time chat events (`message_created`, `message_edited`, `message_deleted`, `reaction_changed`) received through PostgreSQL `LISTEN/NOTIFY` after each commit. Events carry ids only: reload with `MessageRepository.getMessage(viewerId, messageId)` for each connected viewer. Events are not stored: after a reconnection, reload with `listMessages`.
+
+Example: a "looking for players" broadcast (BR-SOC-08) is a circle message plus a push.
+
+```ts
+// BR-SOC-08: post in the circle chat, then push to the members.
+const sent = await this.messages.sendMessage(userId, conversationId, { clientMessageId, body });
+if (!sent.deduplicated) {
+  const { pushTargets } = await this.notifications.notify(
+    'looking_for_players', sent.pushRecipientUserIds, { conversationId, messageId: sent.message.id }, { actorId: userId },
+  );
+  await this.push.send(pushTargets); // your code
+}
+```
 
 ## 9. Business rules
 
