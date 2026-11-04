@@ -1,0 +1,7 @@
+# Database schema, database docs and AI agent rules: every change needs review.
+/db/              @foliarn
+/apps/api/src/data/ @foliarn
+/docs/database/   @foliarn
+/AGENTS.md        @foliarn
+/.agents/         @foliarn
+/.github/CODEOWNERS @foliarn
