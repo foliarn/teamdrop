@@ -1,0 +1,20 @@
+{
+  "name": "teamdrop",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "db:start": "docker compose -f db/docker-compose.yml up -d --build",
+    "db:stop": "docker compose -f db/docker-compose.yml down",
+    "db:migrate": "docker compose -f db/docker-compose.yml exec -T db dbmate up",
+    "db:rollback": "docker compose -f db/docker-compose.yml exec -T db dbmate down",
+    "db:migrate:test": "docker compose -f db/docker-compose.yml exec -T db dbmate --env TEST_DATABASE_URL --no-dump-schema up",
+    "db:reset:test": "docker compose -f db/docker-compose.yml exec -T db bash /workspace/db/scripts/reset-test.sh",
+    "db:new": "docker compose -f db/docker-compose.yml exec -T db dbmate new",
+    "db:test": "docker compose -f db/docker-compose.yml exec -T -e PGPASSWORD=teamdrop_owner_dev db sh -c \"pg_prove -h localhost -U teamdrop_owner -d teamdrop_test /workspace/db/tests/*.sql\"",
+    "db:fixtures": "docker compose -f db/docker-compose.yml exec -T -e PGPASSWORD=teamdrop_owner_dev db bash /workspace/db/scripts/load-fixtures.sh",
+    "db:types": "kysely-codegen --dialect postgres --env-file .env --url \"env(DATABASE_URL_OWNER)\" --out-file apps/api/src/data/internal/generated/database.ts --exclude-pattern \"{schema_migrations,spatial_ref_sys,geometry_columns,geography_columns,raster_columns,raster_overviews}\" --date-parser string",
+    "test:data": "npm run test:data -w apps/api"
+  }
+}

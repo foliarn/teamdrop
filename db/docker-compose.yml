@@ -1,0 +1,28 @@
+services:
+  db:
+    build:
+      context: ./docker
+      # Works around build-time DNS failures in some WSL setups; harmless on Docker Desktop.
+      network: host
+    image: teamdrop-db:dev
+    environment:
+      POSTGRES_PASSWORD: postgres_dev
+      # Used by dbmate and the scripts inside the container.
+      DATABASE_URL: postgres://teamdrop_owner:teamdrop_owner_dev@localhost:5432/teamdrop_dev?sslmode=disable
+      TEST_DATABASE_URL: postgres://teamdrop_owner:teamdrop_owner_dev@localhost:5432/teamdrop_test?sslmode=disable
+      DBMATE_MIGRATIONS_DIR: /workspace/db/migrations
+      DBMATE_SCHEMA_FILE: /workspace/db/schema.sql
+      DBMATE_NO_DUMP_SCHEMA: "false"
+    ports:
+      - "54329:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./:/workspace/db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  pgdata:
