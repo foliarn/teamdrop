@@ -19,6 +19,8 @@ import { CheerRepository } from './repositories/cheer.repository';
 import { ReportRepository } from './repositories/report.repository';
 import { SanctionRepository } from './repositories/sanction.repository';
 import { AuditLogRepository } from './repositories/audit-log.repository';
+import { StatsRepository } from './repositories/stats.repository';
+import { BadgeRepository } from './repositories/badge.repository';
 import { CHAT_LISTENER_URL, ChatEventListener } from './chat-event-listener';
 import { requiredEnv } from './internal/env';
 
@@ -44,6 +46,8 @@ import { requiredEnv } from './internal/env';
     ReportRepository,
     SanctionRepository,
     AuditLogRepository,
+    StatsRepository,
+    BadgeRepository,
     {
       provide: CHAT_LISTENER_URL,
       useFactory: () => requiredEnv('DATABASE_URL_APP'),
@@ -68,6 +72,8 @@ import { requiredEnv } from './internal/env';
     ReportRepository,
     SanctionRepository,
     AuditLogRepository,
+    StatsRepository,
+    BadgeRepository,
     ChatEventListener,
   ],
 })

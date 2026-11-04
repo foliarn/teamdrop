@@ -203,6 +203,64 @@ export interface AuthIdentity {
   user_id: string;
 }
 
+export interface Badge {
+  /**
+   * Free grouping code for display (for example sessions, social, reliability).
+   */
+  category: string;
+  /**
+   * Stable English code used by the code and the front end i18n files (BR-TECH-12).
+   */
+  code: string;
+  /**
+   * English description of how to earn it.
+   */
+  description: string;
+  /**
+   * Optional icon name or path.
+   */
+  icon: string | null;
+  /**
+   * Primary key, UUID v7.
+   */
+  id: Generated<string>;
+  /**
+   * Inactive badges are no longer awarded; holders keep them until the developers remove them.
+   */
+  is_active: Generated<boolean>;
+  /**
+   * English name, shown until the front end has a translation (BR-TECH-12).
+   */
+  name: string;
+  /**
+   * Display order, lowest first.
+   */
+  sort_order: number;
+}
+
+export interface BadgeTier {
+  /**
+   * The badge.
+   */
+  badge_id: string;
+  /**
+   * Primary key, UUID v7.
+   */
+  id: Generated<string>;
+  /**
+   * English name of the level (BR-TECH-12).
+   */
+  name: string;
+  /**
+   * Progress value needed for this level, read by the developers' awarding code (BR-GAM-02).
+   */
+  threshold: number;
+  /**
+   * Level, 1 for the lowest; unique per badge.
+   */
+  tier_rank: number;
+}
+
 export interface BannedIdentity {
   /**
    * When the identity was banned.
@@ -1317,6 +1375,29 @@ export interface UserAvailability {
   user_id: string;
 }
 
+export interface UserBadge {
+  /**
+   * The badge.
+   */
+  badge_id: string;
+  /**
+   * Current level, NULL for a badge without tiers; must belong to the badge.
+   */
+  badge_tier_id: string | null;
+  /**
+   * When the user saw the unlock animation; NULL until then, so it plays once (BR-GAM-01).
+   */
+  seen_at: Timestamp | null;
+  /**
+   * When the badge, or its current level, was unlocked (BR-GAM-01).
+   */
+  unlocked_at: Generated<Timestamp>;
+  /**
+   * The holder.
+   */
+  user_id: string;
+}
+
 export interface UserBlock {
   /**
    * The user who is blocked (BR-SOC-02).
@@ -1508,6 +1589,8 @@ export interface DB {
   attendance_dispute: AttendanceDispute;
   audit_log: AuditLog;
   auth_identity: AuthIdentity;
+  badge: Badge;
+  badge_tier: BadgeTier;
   banned_identity: BannedIdentity;
   cheer: Cheer;
   cheer_type: CheerType;
@@ -1542,6 +1625,7 @@ export interface DB {
   sport: Sport;
   user_account: UserAccount;
   user_availability: UserAvailability;
+  user_badge: UserBadge;
   user_block: UserBlock;
   user_rating: UserRating;
   user_sanction: UserSanction;

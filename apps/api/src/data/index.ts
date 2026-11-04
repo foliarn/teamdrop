@@ -16,6 +16,8 @@ export { CheerRepository } from './repositories/cheer.repository';
 export { ReportRepository } from './repositories/report.repository';
 export { SanctionRepository } from './repositories/sanction.repository';
 export { AuditLogRepository } from './repositories/audit-log.repository';
+export { StatsRepository } from './repositories/stats.repository';
+export { BadgeRepository } from './repositories/badge.repository';
 export { ChatEventListener } from './chat-event-listener';
 export {
   DataError,
@@ -247,3 +249,17 @@ export type {
   ListAuditFilter,
   AuditPage,
 } from './types/moderation.types';
+export type {
+  SportActivity,
+  ProfileStats,
+  ReliabilityPeriod,
+  Reliability,
+  BadgeProgress,
+  Badge,
+  BadgeTier,
+  CreateBadgeInput,
+  UpdateBadgePatch,
+  BadgeTierInput,
+  UserBadge,
+  AwardBadgeOutcome,
+} from './types/stats.types';

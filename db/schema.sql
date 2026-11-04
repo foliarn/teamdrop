@@ -801,6 +801,142 @@ COMMENT ON COLUMN public.auth_identity.last_used_at IS 'Last instant this login 
 
 
 --
+-- Name: badge; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.badge (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    code text NOT NULL,
+    name text NOT NULL,
+    description text NOT NULL,
+    category text NOT NULL,
+    icon text,
+    is_active boolean DEFAULT true NOT NULL,
+    sort_order smallint NOT NULL
+);
+
+
+--
+-- Name: TABLE badge; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.badge IS 'Badge catalog, managed from the back office (BR-GAM-01, BR-TECH-12).';
+
+
+--
+-- Name: COLUMN badge.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.badge.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN badge.code; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.badge.code IS 'Stable English code used by the code and the front end i18n files (BR-TECH-12).';
+
+
+--
+-- Name: COLUMN badge.name; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.badge.name IS 'English name, shown until the front end has a translation (BR-TECH-12).';
+
+
+--
+-- Name: COLUMN badge.description; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.badge.description IS 'English description of how to earn it.';
+
+
+--
+-- Name: COLUMN badge.category; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.badge.category IS 'Free grouping code for display (for example sessions, social, reliability).';
+
+
+--
+-- Name: COLUMN badge.icon; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.badge.icon IS 'Optional icon name or path.';
+
+
+--
+-- Name: COLUMN badge.is_active; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.badge.is_active IS 'Inactive badges are no longer awarded; holders keep them until the developers remove them.';
+
+
+--
+-- Name: COLUMN badge.sort_order; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.badge.sort_order IS 'Display order, lowest first.';
+
+
+--
+-- Name: badge_tier; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.badge_tier (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    badge_id uuid NOT NULL,
+    tier_rank smallint NOT NULL,
+    name text NOT NULL,
+    threshold integer NOT NULL,
+    CONSTRAINT ck_badge_tier_rank_positive CHECK ((tier_rank >= 1)),
+    CONSTRAINT ck_badge_tier_threshold_not_negative CHECK ((threshold >= 0))
+);
+
+
+--
+-- Name: TABLE badge_tier; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.badge_tier IS 'Optional levels of a badge, such as bronze, silver, gold (BR-GAM-01).';
+
+
+--
+-- Name: COLUMN badge_tier.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.badge_tier.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN badge_tier.badge_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.badge_tier.badge_id IS 'The badge.';
+
+
+--
+-- Name: COLUMN badge_tier.tier_rank; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.badge_tier.tier_rank IS 'Level, 1 for the lowest; unique per badge.';
+
+
+--
+-- Name: COLUMN badge_tier.name; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.badge_tier.name IS 'English name of the level (BR-TECH-12).';
+
+
+--
+-- Name: COLUMN badge_tier.threshold; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.badge_tier.threshold IS 'Progress value needed for this level, read by the developers'' awarding code (BR-GAM-02).';
+
+
+--
 -- Name: banned_identity; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3378,6 +3514,61 @@ COMMENT ON COLUMN public.user_availability.end_time IS 'Local end time of the sl
 
 
 --
+-- Name: user_badge; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_badge (
+    user_id uuid NOT NULL,
+    badge_id uuid NOT NULL,
+    badge_tier_id uuid,
+    unlocked_at timestamp with time zone DEFAULT now() NOT NULL,
+    seen_at timestamp with time zone
+);
+
+
+--
+-- Name: TABLE user_badge; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.user_badge IS 'A badge held by a user. Badges can be lost: the row is deleted (BR-GAM-02).';
+
+
+--
+-- Name: COLUMN user_badge.user_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_badge.user_id IS 'The holder.';
+
+
+--
+-- Name: COLUMN user_badge.badge_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_badge.badge_id IS 'The badge.';
+
+
+--
+-- Name: COLUMN user_badge.badge_tier_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_badge.badge_tier_id IS 'Current level, NULL for a badge without tiers; must belong to the badge.';
+
+
+--
+-- Name: COLUMN user_badge.unlocked_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_badge.unlocked_at IS 'When the badge, or its current level, was unlocked (BR-GAM-01).';
+
+
+--
+-- Name: COLUMN user_badge.seen_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_badge.seen_at IS 'When the user saw the unlock animation; NULL until then, so it plays once (BR-GAM-01).';
+
+
+--
 -- Name: user_block; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3848,6 +4039,22 @@ ALTER TABLE ONLY public.auth_identity
 
 
 --
+-- Name: badge pk_badge; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.badge
+    ADD CONSTRAINT pk_badge PRIMARY KEY (id);
+
+
+--
+-- Name: badge_tier pk_badge_tier; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.badge_tier
+    ADD CONSTRAINT pk_badge_tier PRIMARY KEY (id);
+
+
+--
 -- Name: banned_identity pk_banned_identity; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4120,6 +4327,14 @@ ALTER TABLE ONLY public.user_availability
 
 
 --
+-- Name: user_badge pk_user_badge; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_badge
+    ADD CONSTRAINT pk_user_badge PRIMARY KEY (user_id, badge_id);
+
+
+--
 -- Name: user_block pk_user_block; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4205,6 +4420,30 @@ ALTER TABLE ONLY public.auth_identity
 
 ALTER TABLE ONLY public.auth_identity
     ADD CONSTRAINT uq_auth_identity_user_provider UNIQUE (user_id, provider);
+
+
+--
+-- Name: badge uq_badge_code; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.badge
+    ADD CONSTRAINT uq_badge_code UNIQUE (code);
+
+
+--
+-- Name: badge_tier uq_badge_tier_badge_rank; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.badge_tier
+    ADD CONSTRAINT uq_badge_tier_badge_rank UNIQUE (badge_id, tier_rank);
+
+
+--
+-- Name: badge_tier uq_badge_tier_id_badge; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.badge_tier
+    ADD CONSTRAINT uq_badge_tier_id_badge UNIQUE (id, badge_id);
 
 
 --
@@ -4894,6 +5133,27 @@ CREATE INDEX ix_user_availability_user_id ON public.user_availability USING btre
 
 
 --
+-- Name: ix_user_badge_badge_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_user_badge_badge_id ON public.user_badge USING btree (badge_id);
+
+
+--
+-- Name: ix_user_badge_badge_tier_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_user_badge_badge_tier_id ON public.user_badge USING btree (badge_tier_id);
+
+
+--
+-- Name: ix_user_badge_unseen; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_user_badge_unseen ON public.user_badge USING btree (user_id) WHERE (seen_at IS NULL);
+
+
+--
 -- Name: ix_user_block_blocked_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5100,6 +5360,14 @@ ALTER TABLE ONLY public.audit_log
 
 ALTER TABLE ONLY public.auth_identity
     ADD CONSTRAINT fk_auth_identity_user_id FOREIGN KEY (user_id) REFERENCES public.user_account(id) ON DELETE CASCADE;
+
+
+--
+-- Name: badge_tier fk_badge_tier_badge_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.badge_tier
+    ADD CONSTRAINT fk_badge_tier_badge_id FOREIGN KEY (badge_id) REFERENCES public.badge(id) ON DELETE CASCADE;
 
 
 --
@@ -5631,6 +5899,30 @@ ALTER TABLE ONLY public.user_availability
 
 
 --
+-- Name: user_badge fk_user_badge_badge_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_badge
+    ADD CONSTRAINT fk_user_badge_badge_id FOREIGN KEY (badge_id) REFERENCES public.badge(id) ON DELETE CASCADE;
+
+
+--
+-- Name: user_badge fk_user_badge_badge_tier_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_badge
+    ADD CONSTRAINT fk_user_badge_badge_tier_id FOREIGN KEY (badge_tier_id, badge_id) REFERENCES public.badge_tier(id, badge_id) ON DELETE SET NULL (badge_tier_id);
+
+
+--
+-- Name: user_badge fk_user_badge_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_badge
+    ADD CONSTRAINT fk_user_badge_user_id FOREIGN KEY (user_id) REFERENCES public.user_account(id) ON DELETE CASCADE;
+
+
+--
 -- Name: user_block fk_user_block_blocked_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5766,4 +6058,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261104210000'),
     ('20261104210100'),
     ('20261104230000'),
-    ('20261104230100');
+    ('20261104230100'),
+    ('20261105090000');

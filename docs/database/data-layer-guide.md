@@ -103,6 +103,9 @@ Filled in as each batch lands. The TSDoc on each method is the reference.
 - `SanctionRepository`: issues warnings, temporary bans (with an end) and permanent bans (which also ban the email and Google identity hashes), revokes sanctions, removes a message as a moderator (content removal: sanction, hard delete and audit in one call), lists a user's sanctions and returns the ban in force. Every action is written to the audit log for you.
 - `AuditLogRepository`: records the moderator and admin actions that the data layer does not record itself (back-office CRUD, role changes…) and lists the log with filters. Already recorded for you: report, sanction and dispute decisions, content removal, circle invitation rejection and participant removal.
 
+- `StatsRepository`: profile statistics computed on demand (completed sessions, planned hours, people met, main sport by sessions and by hours, specialist or all-rounder, current and longest streaks), the reliability rate (all time and last 90 days, hidden until 5 past occurrences), both gated by the profile section visibility, and the progress data your badge code uses (`getBadgeProgress`, never returned to clients as is).
+- `BadgeRepository`: the badge catalog with optional tiers (back office; the badges themselves are not defined yet), awards and removes badges (your code decides, in real time), lists a user's badges (gated by the badges visibility), and the unseen unlocks for the animation.
+
 Example: a "looking for players" broadcast (BR-SOC-08) is a circle message plus a push.
 
 ```ts
