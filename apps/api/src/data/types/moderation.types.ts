@@ -67,7 +67,13 @@ export type ReportSummary = {
 /** Summary of the reported content, for moderators only. */
 export type ReportTargetDetails =
   | { kind: 'user'; userId: string; username: string }
-  | { kind: 'event'; eventId: string; title: string; ownerId: string }
+  | {
+      kind: 'event';
+      eventId: string;
+      title: string;
+      /** `null` when the owner's account was erased (BR-GDP-04). */
+      ownerId: string | null;
+    }
   | {
       kind: 'message';
       messageId: string;

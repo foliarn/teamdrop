@@ -22,6 +22,7 @@ import { AuditLogRepository } from './repositories/audit-log.repository';
 import { StatsRepository } from './repositories/stats.repository';
 import { BadgeRepository } from './repositories/badge.repository';
 import { AnalyticsRepository } from './repositories/analytics.repository';
+import { GdprRepository } from './repositories/gdpr.repository';
 import { CHAT_LISTENER_URL, ChatEventListener } from './chat-event-listener';
 import { requiredEnv } from './internal/env';
 
@@ -50,6 +51,7 @@ import { requiredEnv } from './internal/env';
     StatsRepository,
     BadgeRepository,
     AnalyticsRepository,
+    GdprRepository,
     {
       provide: CHAT_LISTENER_URL,
       useFactory: () => requiredEnv('DATABASE_URL_APP'),
@@ -77,6 +79,7 @@ import { requiredEnv } from './internal/env';
     StatsRepository,
     BadgeRepository,
     AnalyticsRepository,
+    GdprRepository,
     ChatEventListener,
   ],
 })

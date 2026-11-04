@@ -29,6 +29,8 @@ export type EventStatus = "cancelled" | "draft" | "published";
 
 export type EventVisibility = "circle_only" | "circle_priority" | "community_only" | "public";
 
+export type ExportStatus = "expired" | "failed" | "pending" | "processing" | "ready";
+
 export type FollowStatus = "accepted" | "pending";
 
 export type Gender = "man" | "non_binary" | "prefer_not_to_say" | "woman";
@@ -56,6 +58,8 @@ export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 export type Numeric = ColumnType<string, number | string, number | string>;
 
 export type OccurrenceStatus = "cancelled" | "completed" | "ongoing" | "scheduled";
+
+export type PolicyDocument = "privacy_policy" | "terms_of_service";
 
 export type RatingValueKind = "graded" | "numeric";
 
@@ -484,6 +488,25 @@ export interface CommunityMember {
   user_id: string;
 }
 
+export interface ConsentPurpose {
+  /**
+   * Stable English code used by the code and the front end i18n files (BR-TECH-12).
+   */
+  code: string;
+  /**
+   * Primary key, UUID v7.
+   */
+  id: Generated<string>;
+  /**
+   * True when the app cannot be used without it (terms of service, privacy policy).
+   */
+  is_required: boolean;
+  /**
+   * English name, shown until the front end has a translation (BR-TECH-12).
+   */
+  name: string;
+}
+
 export interface Conversation {
   /**
    * Circle of a circle chat, created with the circle (BR-SOC-08, BR-MSG-01). Deleted with the circle (BR-MSG-06).
@@ -530,6 +553,37 @@ export interface ConversationMember {
   muted: Generated<boolean>;
   /**
    * The user.
+   */
+  user_id: string;
+}
+
+export interface DataExportRequest {
+  /**
+   * When the file was ready.
+   */
+  completed_at: Timestamp | null;
+  /**
+   * End of the download link, 7 days after completion (BR-GDP-07, BR-GDP-09).
+   */
+  expires_at: Timestamp | null;
+  /**
+   * Path of the JSON file on the server disk; NULL once deleted.
+   */
+  file_path: string | null;
+  /**
+   * Primary key, UUID v7.
+   */
+  id: Generated<string>;
+  /**
+   * When the user asked.
+   */
+  requested_at: Generated<Timestamp>;
+  /**
+   * pending, processing, ready, failed or expired. One pending or processing request per user.
+   */
+  status: Generated<ExportStatus>;
+  /**
+   * The user; requests and files go with the account.
    */
   user_id: string;
 }
@@ -592,9 +646,9 @@ export interface Event {
    */
   owner_counts_toward_capacity: Generated<boolean>;
   /**
-   * The single owner, who can transfer ownership (BR-EVT-20). Erasure transfers or cancels first (BR-GDP-03).
+   * The single owner, who can transfer ownership (BR-EVT-20). On erasure the event goes to the oldest co-organizer; without one the owner becomes NULL and the event is cancelled (BR-GDP-04).
    */
-  owner_id: string;
+  owner_id: string | null;
   /**
    * When the event was published; drives the circle_priority delay (BR-EVT-23, BR-EVT-24).
    */
@@ -1023,6 +1077,29 @@ export interface PlatformDailyStat {
    * Accounts created that day.
    */
   signups: number;
+}
+
+export interface PolicyVersion {
+  /**
+   * terms_of_service or privacy_policy.
+   */
+  document: PolicyDocument;
+  /**
+   * Primary key, UUID v7.
+   */
+  id: Generated<string>;
+  /**
+   * When it took effect; the latest published version of a document is the current one.
+   */
+  published_at: Generated<Timestamp>;
+  /**
+   * Where the text of this version is published.
+   */
+  url: string;
+  /**
+   * Version label, unique per document (for example 2026-11).
+   */
+  version: string;
 }
 
 export interface PushSubscription {
@@ -1533,6 +1610,33 @@ export interface UserCityActivity {
   user_id: string;
 }
 
+export interface UserConsent {
+  /**
+   * The purpose.
+   */
+  consent_purpose_id: string;
+  /**
+   * When the user granted or withdrew it.
+   */
+  created_at: Generated<Timestamp>;
+  /**
+   * True for a grant, false for a withdrawal. Erasure appends a withdrawal of every purpose.
+   */
+  granted: boolean;
+  /**
+   * Primary key, UUID v7 (time-ordered: the latest row per purpose is the current state).
+   */
+  id: Generated<string>;
+  /**
+   * Policy version accepted, for the terms of service and the privacy policy.
+   */
+  policy_version_id: string | null;
+  /**
+   * The user; NULL after erasure, the history is kept 3 more years (BR-GDP-09).
+   */
+  user_id: string | null;
+}
+
 export interface UserRating {
   /**
    * Numeric value for a numeric system, NULL for a graded system (BR-ACC-11).
@@ -1720,8 +1824,10 @@ export interface DB {
   community: Community;
   community_join_request: CommunityJoinRequest;
   community_member: CommunityMember;
+  consent_purpose: ConsentPurpose;
   conversation: Conversation;
   conversation_member: ConversationMember;
+  data_export_request: DataExportRequest;
   event: Event;
   event_circle: EventCircle;
   event_co_organizer: EventCoOrganizer;
@@ -1735,6 +1841,7 @@ export interface DB {
   notification_preference: NotificationPreference;
   notification_type: NotificationType;
   platform_daily_stat: PlatformDailyStat;
+  policy_version: PolicyVersion;
   push_subscription: PushSubscription;
   rating_grade: RatingGrade;
   rating_system: RatingSystem;
@@ -1751,6 +1858,7 @@ export interface DB {
   user_badge: UserBadge;
   user_block: UserBlock;
   user_city_activity: UserCityActivity;
+  user_consent: UserConsent;
   user_rating: UserRating;
   user_sanction: UserSanction;
   user_setting: UserSetting;

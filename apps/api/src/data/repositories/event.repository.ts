@@ -39,6 +39,7 @@ import {
   type OccurrenceSourceRow,
 } from '../internal/event-queries';
 import {
+  ownerOf,
   ACTIVE_REGISTRATION_STATUSES,
   activeRegistrantIds,
   effectiveMaxParticipants,
@@ -466,7 +467,7 @@ export class EventRepository {
           .insertInto('event_co_organizer')
           .values({
             event_id: eventId,
-            user_id: event.owner_id,
+            user_id: ownerOf(event),
             counts_toward_capacity: event.owner_counts_toward_capacity,
             added_at: sql<Date>`now()`,
           })
@@ -507,7 +508,7 @@ export class EventRepository {
           );
         }
         // BR-SOC-02: no organizing with a blocked user.
-        if (await isBlocked(trx, event.owner_id, userId)) {
+        if (await isBlocked(trx, ownerOf(event), userId)) {
           throw new BlockedError();
         }
         const existing = await trx
@@ -999,7 +1000,11 @@ export class EventRepository {
           ? null
           : (row?.address ?? event.address),
         minParticipants: event.min_participants,
-        owner: { id: event.owner_id, username: event.owner_username },
+        // BR-GDP-04: `null` when the owner's account was erased ("deleted user").
+        owner:
+          event.owner_id === null || event.owner_username === null
+            ? null
+            : { id: event.owner_id, username: event.owner_username },
         coOrganizers: coOrganizers.map((co) => ({
           id: co.id,
           username: co.username,

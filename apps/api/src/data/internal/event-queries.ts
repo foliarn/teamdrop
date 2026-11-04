@@ -24,8 +24,9 @@ export type EventSourceRow = {
   title: string;
   description: string | null;
   event_status: EventStatus;
-  owner_id: string;
-  owner_username: string;
+  /** NULL when the owner's account was erased without a co-organizer to take over (BR-GDP-04). */
+  owner_id: string | null;
+  owner_username: string | null;
   community_id: string | null;
   community_name: string | null;
   sport_id: string;
@@ -136,7 +137,7 @@ export function eventSourceSql(
       ) AS playing_organizers,
       ${distance} AS distance_m
     FROM event e
-    JOIN user_account ou ON ou.id = e.owner_id
+    LEFT JOIN user_account ou ON ou.id = e.owner_id
     LEFT JOIN community c ON c.id = e.community_id
     JOIN sport sp ON sp.id = e.sport_id
     JOIN skill_level smin ON smin.id = e.skill_level_min_id

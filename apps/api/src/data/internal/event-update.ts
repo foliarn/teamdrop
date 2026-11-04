@@ -13,6 +13,7 @@ import {
 } from '../errors';
 import type { DB } from './generated/database';
 import {
+  ownerOf,
   activeRegistrantIds,
   takenSpots,
   type EventRow,
@@ -208,7 +209,7 @@ export async function updateSeries(
   const before = await snapshotEvent(trx, event.id);
   const { values, location } = await eventPatchValues(
     trx,
-    event.owner_id,
+    ownerOf(event),
     patch,
   );
   const changed = Object.keys(values).length > 0 || location !== undefined;
@@ -305,7 +306,7 @@ export async function updateOccurrence(
   if (patch.maxParticipants !== undefined) {
     updates.max_participants = patch.maxParticipants;
   }
-  const location = await resolveLocation(trx, event.owner_id, {
+  const location = await resolveLocation(trx, ownerOf(event), {
     venueId: patch.venueId,
     address: patch.address,
     municipalityId: patch.municipalityId,
@@ -447,7 +448,7 @@ export async function splitSeries(
   // The new event copies the old one, with the patch applied and the new schedule.
   const { values, location } = await eventPatchValues(
     trx,
-    event.owner_id,
+    ownerOf(event),
     patch,
   );
   const copy = withoutKeys(event, [

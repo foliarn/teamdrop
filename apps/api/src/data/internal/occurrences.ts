@@ -1,6 +1,7 @@
 import { type Kysely, type Selectable, sql } from 'kysely';
 import {
   InternalDataError,
+  InvalidStateError,
   NotFoundError,
   OccurrenceFullError,
 } from '../errors';
@@ -14,6 +15,17 @@ import type { PromotionOutcome } from '../types/event.types';
 export type EventRow = Selectable<DB['event']>;
 /** A row of `event_occurrence`. */
 export type OccurrenceRow = Selectable<DB['event_occurrence']>;
+
+/**
+ * The owner of an event. Throws `InvalidStateError` for an event whose owner's account was erased without a
+ * co-organizer to take over (BR-GDP-04): such an event is cancelled or past, and has no owner any more.
+ */
+export function ownerOf(event: { owner_id: string | null }): string {
+  if (event.owner_id === null) {
+    throw new InvalidStateError('The event has no owner any more');
+  }
+  return event.owner_id;
+}
 
 /** Registration statuses that hold a place, or wait for one (BR-REG-02). */
 export const ACTIVE_REGISTRATION_STATUSES = [
@@ -153,7 +165,7 @@ export async function materializeOccurrence(
 
   // BR-EVT-22, BR-EVT-21: organizers who play hold a registration, as everyone else does.
   const organizerIds: string[] = [];
-  if (event.owner_counts_toward_capacity) {
+  if (event.owner_counts_toward_capacity && event.owner_id !== null) {
     organizerIds.push(event.owner_id);
   }
   const playingCoOrganizers = await trx

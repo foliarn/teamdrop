@@ -16,6 +16,20 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: pg_cron; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
+
+
+--
+-- Name: EXTENSION pg_cron; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION pg_cron IS 'Job scheduler for PostgreSQL';
+
+
+--
 -- Name: btree_gist; Type: EXTENSION; Schema: -; Owner: -
 --
 
@@ -274,6 +288,19 @@ CREATE TYPE public.event_visibility AS ENUM (
 
 
 --
+-- Name: export_status; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.export_status AS ENUM (
+    'pending',
+    'processing',
+    'ready',
+    'failed',
+    'expired'
+);
+
+
+--
 -- Name: follow_status; Type: TYPE; Schema: public; Owner: -
 --
 
@@ -327,6 +354,16 @@ CREATE TYPE public.occurrence_status AS ENUM (
     'ongoing',
     'completed',
     'cancelled'
+);
+
+
+--
+-- Name: policy_document; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.policy_document AS ENUM (
+    'terms_of_service',
+    'privacy_policy'
 );
 
 
@@ -491,6 +528,158 @@ $$;
 --
 
 COMMENT ON FUNCTION public.create_community_conversation() IS 'Creates the chat of a new community (BR-SOC-09, BR-MSG-01).';
+
+
+--
+-- Name: erase_user_account(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.erase_user_account(p_user_id uuid) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  v_event record;
+  v_co record;
+BEGIN
+  FOR v_event IN SELECT id FROM event WHERE owner_id = p_user_id FOR UPDATE LOOP
+    SELECT user_id, counts_toward_capacity INTO v_co
+    FROM event_co_organizer WHERE event_id = v_event.id
+    ORDER BY added_at, user_id LIMIT 1;
+    IF FOUND THEN
+      DELETE FROM event_co_organizer WHERE event_id = v_event.id AND user_id = v_co.user_id;
+      UPDATE event SET owner_id = v_co.user_id, owner_counts_toward_capacity = v_co.counts_toward_capacity
+      WHERE id = v_event.id;
+    ELSE
+      UPDATE event SET owner_id = NULL,
+        status = CASE WHEN status = 'cancelled' THEN status ELSE 'cancelled'::event_status END
+      WHERE id = v_event.id;
+    END IF;
+  END LOOP;
+
+  INSERT INTO user_consent (user_id, consent_purpose_id, granted)
+  SELECT p_user_id, cp.id, false FROM consent_purpose cp;
+
+  DELETE FROM user_account WHERE id = p_user_id;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION erase_user_account(p_user_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.erase_user_account(p_user_id uuid) IS 'Final step of the account erasure (BR-GDP-03 to BR-GDP-05). Call it through GdprRepository, never directly.';
+
+
+--
+-- Name: export_user_data(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.export_user_data(p_user_id uuid, p_encryption_key text) RETURNS jsonb
+    LANGUAGE sql STABLE
+    AS $$
+  SELECT jsonb_build_object(
+    'exportedAt', now(),
+    'account', (
+      SELECT jsonb_build_object(
+        'id', u.id, 'username', u.username,
+        'email', pgp_sym_decrypt(u.email_ciphertext, p_encryption_key),
+        'emailVerifiedAt', u.email_verified_at, 'firstName', u.first_name,
+        'birthDate', pgp_sym_decrypt(u.birth_date_ciphertext, p_encryption_key),
+        'gender', u.gender, 'municipality', m.name, 'avatarPath', u.avatar_path, 'role', u.role,
+        'createdAt', u.created_at, 'lastActiveAt', u.last_active_at,
+        'deletionRequestedAt', u.deletion_requested_at)
+      FROM user_account u JOIN municipality m ON m.id = u.municipality_id WHERE u.id = p_user_id),
+    'loginMethods', (SELECT COALESCE(jsonb_agg(jsonb_build_object('provider', ai.provider, 'createdAt', ai.created_at)), '[]')
+      FROM auth_identity ai WHERE ai.user_id = p_user_id),
+    'settings', (SELECT to_jsonb(s) - 'user_id' FROM user_setting s WHERE s.user_id = p_user_id),
+    'sports', (SELECT COALESCE(jsonb_agg(jsonb_build_object('sport', sp.code, 'level', sl.code)), '[]')
+      FROM user_sport us JOIN sport sp ON sp.id = us.sport_id JOIN skill_level sl ON sl.id = us.skill_level_id
+      WHERE us.user_id = p_user_id),
+    'ratings', (SELECT COALESCE(jsonb_agg(jsonb_build_object('system', rs.code, 'numericValue', ur.numeric_value,
+        'grade', rg.code)), '[]')
+      FROM user_rating ur JOIN rating_system rs ON rs.id = ur.rating_system_id
+      LEFT JOIN rating_grade rg ON rg.id = ur.rating_grade_id WHERE ur.user_id = p_user_id),
+    'availability', (SELECT COALESCE(jsonb_agg(jsonb_build_object('dayOfWeek', a.day_of_week,
+        'startTime', a.start_time, 'endTime', a.end_time)), '[]')
+      FROM user_availability a WHERE a.user_id = p_user_id),
+    'following', (SELECT COALESCE(jsonb_agg(jsonb_build_object('username', u.username, 'status', f.status,
+        'createdAt', f.created_at)), '[]')
+      FROM follow f JOIN user_account u ON u.id = f.followed_id WHERE f.follower_id = p_user_id),
+    'followers', (SELECT COALESCE(jsonb_agg(jsonb_build_object('username', u.username, 'status', f.status,
+        'createdAt', f.created_at)), '[]')
+      FROM follow f JOIN user_account u ON u.id = f.follower_id WHERE f.followed_id = p_user_id),
+    'blocks', (SELECT COALESCE(jsonb_agg(jsonb_build_object('username', u.username, 'createdAt', b.created_at)), '[]')
+      FROM user_block b JOIN user_account u ON u.id = b.blocked_id WHERE b.blocker_id = p_user_id),
+    'circles', (SELECT COALESCE(jsonb_agg(jsonb_build_object('circle', c.name, 'role', cm.role, 'joinedAt', cm.joined_at)), '[]')
+      FROM circle_member cm JOIN circle c ON c.id = cm.circle_id WHERE cm.user_id = p_user_id),
+    'communities', (SELECT COALESCE(jsonb_agg(jsonb_build_object('community', c.name, 'role', cm.role,
+        'joinedAt', cm.joined_at)), '[]')
+      FROM community_member cm JOIN community c ON c.id = cm.community_id WHERE cm.user_id = p_user_id),
+    'venues', (SELECT COALESCE(jsonb_agg(jsonb_build_object('name', v.name, 'address', v.address,
+        'isPrivate', v.is_private, 'createdAt', v.created_at)), '[]')
+      FROM venue v WHERE v.created_by_id = p_user_id),
+    'eventsOwned', (SELECT COALESCE(jsonb_agg(jsonb_build_object('id', e.id, 'title', e.title, 'status', e.status,
+        'startDate', e.start_date, 'startTime', e.start_time, 'recurrenceRule', e.recurrence_rule,
+        'address', e.address, 'createdAt', e.created_at)), '[]')
+      FROM event e WHERE e.owner_id = p_user_id),
+    'registrations', (SELECT COALESCE(jsonb_agg(jsonb_build_object('event', e.title, 'startsAt', o.starts_at,
+        'status', r.status, 'attendance', r.attendance, 'lateCancellation', r.is_late_cancellation,
+        'createdAt', r.created_at,
+        'guests', (SELECT COALESCE(jsonb_agg(g.display_name), '[]') FROM registration_guest g WHERE g.registration_id = r.id))
+        ORDER BY o.starts_at), '[]')
+      FROM registration r JOIN event_occurrence o ON o.id = r.occurrence_id JOIN event e ON e.id = o.event_id
+      WHERE r.user_id = p_user_id),
+    'attendanceDisputes', (SELECT COALESCE(jsonb_agg(jsonb_build_object('reason', d.reason, 'status', d.status,
+        'createdAt', d.created_at)), '[]')
+      FROM attendance_dispute d JOIN registration r ON r.id = d.registration_id WHERE r.user_id = p_user_id),
+    'messages', (SELECT COALESCE(jsonb_agg(jsonb_build_object('conversationKind', cv.kind, 'body', m.body,
+        'createdAt', m.created_at, 'editedAt', m.edited_at) ORDER BY m.id), '[]')
+      FROM message m JOIN conversation cv ON cv.id = m.conversation_id WHERE m.sender_id = p_user_id),
+    'reactions', (SELECT COALESCE(jsonb_agg(jsonb_build_object('reaction', mr.emoji, 'createdAt', mr.created_at)), '[]')
+      FROM message_reaction mr WHERE mr.user_id = p_user_id),
+    'notifications', (SELECT COALESCE(jsonb_agg(jsonb_build_object('type', t.code, 'payload', n.payload,
+        'createdAt', n.created_at, 'readAt', n.read_at) ORDER BY n.id), '[]')
+      FROM notification n JOIN notification_type t ON t.id = n.notification_type_id WHERE n.user_id = p_user_id),
+    'notificationPreferences', (SELECT COALESCE(jsonb_agg(jsonb_build_object('type', t.code, 'push', p.push_enabled,
+        'inApp', p.in_app_enabled)), '[]')
+      FROM notification_preference p JOIN notification_type t ON t.id = p.notification_type_id WHERE p.user_id = p_user_id),
+    'devices', (SELECT COALESCE(jsonb_agg(jsonb_build_object('userAgent', ps.user_agent, 'createdAt', ps.created_at,
+        'lastUsedAt', ps.last_used_at)), '[]')
+      FROM push_subscription ps WHERE ps.user_id = p_user_id),
+    'cheersGiven', (SELECT COALESCE(jsonb_agg(jsonb_build_object('to', u.username, 'type', ct.code,
+        'createdAt', c.created_at)), '[]')
+      FROM cheer c JOIN cheer_type ct ON ct.id = c.cheer_type_id JOIN user_account u ON u.id = c.recipient_id
+      WHERE c.giver_id = p_user_id),
+    'cheersReceived', (SELECT COALESCE(jsonb_agg(jsonb_build_object('from', u.username, 'type', ct.code,
+        'createdAt', c.created_at)), '[]')
+      FROM cheer c JOIN cheer_type ct ON ct.id = c.cheer_type_id LEFT JOIN user_account u ON u.id = c.giver_id
+      WHERE c.recipient_id = p_user_id),
+    'reportsFiled', (SELECT COALESCE(jsonb_agg(jsonb_build_object('reason', rr.code, 'status', rp.status,
+        'details', rp.details, 'createdAt', rp.created_at)), '[]')
+      FROM report rp JOIN report_reason rr ON rr.id = rp.report_reason_id WHERE rp.reporter_id = p_user_id),
+    'sanctions', (SELECT COALESCE(jsonb_agg(jsonb_build_object('kind', s.kind, 'reason', s.reason,
+        'startsAt', s.starts_at, 'endsAt', s.ends_at, 'revokedAt', s.revoked_at)), '[]')
+      FROM user_sanction s WHERE s.user_id = p_user_id),
+    'badges', (SELECT COALESCE(jsonb_agg(jsonb_build_object('badge', b.code, 'tier', t.tier_rank,
+        'unlockedAt', ub.unlocked_at)), '[]')
+      FROM user_badge ub JOIN badge b ON b.id = ub.badge_id LEFT JOIN badge_tier t ON t.id = ub.badge_tier_id
+      WHERE ub.user_id = p_user_id),
+    'consents', (SELECT COALESCE(jsonb_agg(jsonb_build_object('purpose', cp.code, 'granted', uc.granted,
+        'policyVersion', pv.version, 'createdAt', uc.created_at) ORDER BY uc.id), '[]')
+      FROM user_consent uc JOIN consent_purpose cp ON cp.id = uc.consent_purpose_id
+      LEFT JOIN policy_version pv ON pv.id = uc.policy_version_id WHERE uc.user_id = p_user_id),
+    'exportRequests', (SELECT COALESCE(jsonb_agg(jsonb_build_object('status', x.status, 'requestedAt', x.requested_at)), '[]')
+      FROM data_export_request x WHERE x.user_id = p_user_id)
+  )
+$$;
+
+
+--
+-- Name: FUNCTION export_user_data(p_user_id uuid, p_encryption_key text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.export_user_data(p_user_id uuid, p_encryption_key text) IS 'Every piece of data of a user as one JSON object, emails and birth date decrypted with the key passed by the data layer (BR-GDP-07). Never logged.';
 
 
 --
@@ -681,6 +870,100 @@ $$;
 --
 
 COMMENT ON FUNCTION public.refresh_user_city_activity(p_from date) IS 'Recomputes city ranking activity from the month of p_from (default: current month, hourly job) (BR-STA-06, BR-STA-09).';
+
+
+--
+-- Name: run_gdpr_jobs(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.run_gdpr_jobs() RETURNS jsonb
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  v_messages int;
+  v_conversations int;
+  v_refresh int;
+  v_account int;
+  v_notifications int;
+  v_audit int;
+  v_consents int;
+  v_exports int;
+  v_inactive int;
+  v_reactivated int;
+BEGIN
+  -- BR-MSG-05: occurrence chat messages are purged 1 year after the occurrence, unless a report targets them: then they
+  -- are kept until the report is closed, plus 1 year.
+  DELETE FROM message m
+  USING conversation cv, event_occurrence o
+  WHERE cv.id = m.conversation_id AND o.id = cv.occurrence_id
+    AND o.starts_at < now() - interval '1 year'
+    AND NOT EXISTS (
+      SELECT 1 FROM report r
+      WHERE r.target_message_id = m.id
+        AND (r.closed_at IS NULL OR r.closed_at > now() - interval '1 year')
+    );
+  GET DIAGNOSTICS v_messages = ROW_COUNT;
+  DELETE FROM conversation cv
+  USING event_occurrence o
+  WHERE o.id = cv.occurrence_id AND o.starts_at < now() - interval '1 year'
+    AND NOT EXISTS (SELECT 1 FROM message m WHERE m.conversation_id = cv.id);
+  GET DIAGNOSTICS v_conversations = ROW_COUNT;
+
+  -- BR-GDP-09: tokens 30 days after expiry.
+  DELETE FROM refresh_token WHERE expires_at < now() - interval '30 days';
+  GET DIAGNOSTICS v_refresh = ROW_COUNT;
+  DELETE FROM account_token WHERE expires_at < now() - interval '30 days';
+  GET DIAGNOSTICS v_account = ROW_COUNT;
+
+  -- BR-NOT-01, BR-GDP-09: in-app notifications are kept 90 days.
+  DELETE FROM notification WHERE created_at < now() - interval '90 days';
+  GET DIAGNOSTICS v_notifications = ROW_COUNT;
+
+  -- BR-MOD-05, BR-GDP-09: the audit log is kept 3 years.
+  DELETE FROM audit_log WHERE created_at < now() - interval '3 years';
+  GET DIAGNOSTICS v_audit = ROW_COUNT;
+
+  -- BR-GDP-09: consent history for the account lifetime plus 3 years. Rows of an erased account (user_id NULL) are
+  -- deleted 3 years after the withdrawals the erasure appended.
+  DELETE FROM user_consent uc
+  WHERE uc.user_id IS NULL AND uc.created_at < now() - interval '3 years';
+  GET DIAGNOSTICS v_consents = ROW_COUNT;
+
+  -- BR-GDP-07: download links last 7 days. The files are deleted from the disk by the developers
+  -- (GdprRepository.listExpiredExportFiles).
+  UPDATE data_export_request SET status = 'expired'
+  WHERE status = 'ready' AND expires_at < now();
+  GET DIAGNOSTICS v_exports = ROW_COUNT;
+
+  -- BR-GDP-08: a user active again after the warning is no longer warned.
+  UPDATE user_account SET inactivity_warned_at = NULL
+  WHERE inactivity_warned_at IS NOT NULL AND last_active_at > inactivity_warned_at;
+  GET DIAGNOSTICS v_reactivated = ROW_COUNT;
+
+  -- BR-GDP-08: deletion at 24 months of inactivity, for warned accounts. The request is dated 30 days back, so the
+  -- account is due for erasure now (the 30-day grace period ran since the warning).
+  UPDATE user_account
+  SET deletion_requested_at = now() - interval '30 days'
+  WHERE deletion_requested_at IS NULL
+    AND inactivity_warned_at IS NOT NULL
+    AND inactivity_warned_at < now() - interval '30 days'
+    AND COALESCE(last_active_at, created_at) < now() - interval '24 months';
+  GET DIAGNOSTICS v_inactive = ROW_COUNT;
+
+  RETURN jsonb_build_object(
+    'occurrenceMessages', v_messages, 'occurrenceConversations', v_conversations,
+    'refreshTokens', v_refresh, 'accountTokens', v_account, 'notifications', v_notifications,
+    'auditEntries', v_audit, 'consents', v_consents, 'expiredExports', v_exports,
+    'reactivatedAccounts', v_reactivated, 'inactiveAccountsScheduled', v_inactive);
+END;
+$$;
+
+
+--
+-- Name: FUNCTION run_gdpr_jobs(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.run_gdpr_jobs() IS 'Nightly retention and inactivity job (BR-GDP-08, BR-GDP-09, BR-MSG-05). Returns the number of rows touched per purge.';
 
 
 --
@@ -1669,6 +1952,53 @@ COMMENT ON COLUMN public.community_member.joined_at IS 'When the user joined; ow
 
 
 --
+-- Name: consent_purpose; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.consent_purpose (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    code text NOT NULL,
+    name text NOT NULL,
+    is_required boolean NOT NULL
+);
+
+
+--
+-- Name: TABLE consent_purpose; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.consent_purpose IS 'Reference list of consent purposes (BR-GDP-01, BR-TECH-12).';
+
+
+--
+-- Name: COLUMN consent_purpose.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.consent_purpose.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN consent_purpose.code; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.consent_purpose.code IS 'Stable English code used by the code and the front end i18n files (BR-TECH-12).';
+
+
+--
+-- Name: COLUMN consent_purpose.name; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.consent_purpose.name IS 'English name, shown until the front end has a translation (BR-TECH-12).';
+
+
+--
+-- Name: COLUMN consent_purpose.is_required; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.consent_purpose.is_required IS 'True when the app cannot be used without it (terms of service, privacy policy).';
+
+
+--
 -- Name: conversation; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1789,12 +2119,84 @@ COMMENT ON COLUMN public.conversation_member.joined_at IS 'When the row was crea
 
 
 --
+-- Name: data_export_request; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.data_export_request (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    user_id uuid NOT NULL,
+    status public.export_status DEFAULT 'pending'::public.export_status NOT NULL,
+    file_path text,
+    requested_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    expires_at timestamp with time zone,
+    CONSTRAINT ck_data_export_request_ready CHECK (((status <> 'ready'::public.export_status) OR ((file_path IS NOT NULL) AND (completed_at IS NOT NULL) AND (expires_at IS NOT NULL))))
+);
+
+
+--
+-- Name: TABLE data_export_request; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.data_export_request IS 'A request to export all of a user''s data as JSON, built asynchronously (BR-GDP-07).';
+
+
+--
+-- Name: COLUMN data_export_request.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.data_export_request.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN data_export_request.user_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.data_export_request.user_id IS 'The user; requests and files go with the account.';
+
+
+--
+-- Name: COLUMN data_export_request.status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.data_export_request.status IS 'pending, processing, ready, failed or expired. One pending or processing request per user.';
+
+
+--
+-- Name: COLUMN data_export_request.file_path; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.data_export_request.file_path IS 'Path of the JSON file on the server disk; NULL once deleted.';
+
+
+--
+-- Name: COLUMN data_export_request.requested_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.data_export_request.requested_at IS 'When the user asked.';
+
+
+--
+-- Name: COLUMN data_export_request.completed_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.data_export_request.completed_at IS 'When the file was ready.';
+
+
+--
+-- Name: COLUMN data_export_request.expires_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.data_export_request.expires_at IS 'End of the download link, 7 days after completion (BR-GDP-07, BR-GDP-09).';
+
+
+--
 -- Name: event; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.event (
     id uuid DEFAULT uuidv7() NOT NULL,
-    owner_id uuid NOT NULL,
+    owner_id uuid,
     community_id uuid,
     sport_id uuid NOT NULL,
     title text NOT NULL,
@@ -1856,7 +2258,7 @@ COMMENT ON COLUMN public.event.id IS 'Primary key, UUID v7.';
 -- Name: COLUMN event.owner_id; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.event.owner_id IS 'The single owner, who can transfer ownership (BR-EVT-20). Erasure transfers or cancels first (BR-GDP-03).';
+COMMENT ON COLUMN public.event.owner_id IS 'The single owner, who can transfer ownership (BR-EVT-20). On erasure the event goes to the oldest co-organizer; without one the owner becomes NULL and the event is cancelled (BR-GDP-04).';
 
 
 --
@@ -2907,6 +3309,61 @@ COMMENT ON COLUMN public.platform_daily_stat.reports_opened IS 'Reports filed th
 --
 
 COMMENT ON COLUMN public.platform_daily_stat.reports_closed IS 'Reports resolved or dismissed that day.';
+
+
+--
+-- Name: policy_version; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.policy_version (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    document public.policy_document NOT NULL,
+    version text NOT NULL,
+    url text NOT NULL,
+    published_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE policy_version; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.policy_version IS 'Published versions of the terms of service and the privacy policy (BR-GDP-01).';
+
+
+--
+-- Name: COLUMN policy_version.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.policy_version.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN policy_version.document; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.policy_version.document IS 'terms_of_service or privacy_policy.';
+
+
+--
+-- Name: COLUMN policy_version.version; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.policy_version.version IS 'Version label, unique per document (for example 2026-11).';
+
+
+--
+-- Name: COLUMN policy_version.url; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.policy_version.url IS 'Where the text of this version is published.';
+
+
+--
+-- Name: COLUMN policy_version.published_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.policy_version.published_at IS 'When it took effect; the latest published version of a document is the current one.';
 
 
 --
@@ -4093,6 +4550,69 @@ COMMENT ON COLUMN public.user_city_activity.minutes IS 'Planned minutes of those
 
 
 --
+-- Name: user_consent; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_consent (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    user_id uuid,
+    consent_purpose_id uuid NOT NULL,
+    policy_version_id uuid,
+    granted boolean NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE user_consent; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.user_consent IS 'Append-only history of consent grants and withdrawals (BR-GDP-01). Kept for the account lifetime plus 3 years (BR-GDP-09).';
+
+
+--
+-- Name: COLUMN user_consent.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_consent.id IS 'Primary key, UUID v7 (time-ordered: the latest row per purpose is the current state).';
+
+
+--
+-- Name: COLUMN user_consent.user_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_consent.user_id IS 'The user; NULL after erasure, the history is kept 3 more years (BR-GDP-09).';
+
+
+--
+-- Name: COLUMN user_consent.consent_purpose_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_consent.consent_purpose_id IS 'The purpose.';
+
+
+--
+-- Name: COLUMN user_consent.policy_version_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_consent.policy_version_id IS 'Policy version accepted, for the terms of service and the privacy policy.';
+
+
+--
+-- Name: COLUMN user_consent.granted; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_consent.granted IS 'True for a grant, false for a withdrawal. Erasure appends a withdrawal of every purpose.';
+
+
+--
+-- Name: COLUMN user_consent.created_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_consent.created_at IS 'When the user granted or withdrew it.';
+
+
+--
 -- Name: user_rating; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4611,6 +5131,14 @@ ALTER TABLE ONLY public.community_member
 
 
 --
+-- Name: consent_purpose pk_consent_purpose; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.consent_purpose
+    ADD CONSTRAINT pk_consent_purpose PRIMARY KEY (id);
+
+
+--
 -- Name: conversation pk_conversation; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4624,6 +5152,14 @@ ALTER TABLE ONLY public.conversation
 
 ALTER TABLE ONLY public.conversation_member
     ADD CONSTRAINT pk_conversation_member PRIMARY KEY (conversation_id, user_id);
+
+
+--
+-- Name: data_export_request pk_data_export_request; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.data_export_request
+    ADD CONSTRAINT pk_data_export_request PRIMARY KEY (id);
 
 
 --
@@ -4728,6 +5264,14 @@ ALTER TABLE ONLY public.notification_type
 
 ALTER TABLE ONLY public.platform_daily_stat
     ADD CONSTRAINT pk_platform_daily_stat PRIMARY KEY (day);
+
+
+--
+-- Name: policy_version pk_policy_version; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_version
+    ADD CONSTRAINT pk_policy_version PRIMARY KEY (id);
 
 
 --
@@ -4859,6 +5403,14 @@ ALTER TABLE ONLY public.user_city_activity
 
 
 --
+-- Name: user_consent pk_user_consent; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_consent
+    ADD CONSTRAINT pk_user_consent PRIMARY KEY (id);
+
+
+--
 -- Name: user_rating pk_user_rating; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4987,6 +5539,14 @@ ALTER TABLE ONLY public.cheer_type
 
 
 --
+-- Name: consent_purpose uq_consent_purpose_code; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.consent_purpose
+    ADD CONSTRAINT uq_consent_purpose_code UNIQUE (code);
+
+
+--
 -- Name: conversation uq_conversation_circle_id; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5040,6 +5600,14 @@ ALTER TABLE ONLY public.municipality
 
 ALTER TABLE ONLY public.notification_type
     ADD CONSTRAINT uq_notification_type_code UNIQUE (code);
+
+
+--
+-- Name: policy_version uq_policy_version_document_version; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.policy_version
+    ADD CONSTRAINT uq_policy_version_document_version UNIQUE (document, version);
 
 
 --
@@ -5299,6 +5867,20 @@ CREATE INDEX ix_conversation_member_user_id ON public.conversation_member USING 
 
 
 --
+-- Name: ix_data_export_request_expiry; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_data_export_request_expiry ON public.data_export_request USING btree (expires_at) WHERE (status = 'ready'::public.export_status);
+
+
+--
+-- Name: ix_data_export_request_queue; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_data_export_request_queue ON public.data_export_request USING btree (requested_at) WHERE (status = 'pending'::public.export_status);
+
+
+--
 -- Name: ix_event_circle_circle_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5530,6 +6112,13 @@ CREATE INDEX ix_notification_user_id_id ON public.notification USING btree (user
 
 
 --
+-- Name: ix_policy_version_current; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_policy_version_current ON public.policy_version USING btree (document, published_at DESC);
+
+
+--
 -- Name: ix_push_subscription_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5712,6 +6301,34 @@ CREATE INDEX ix_user_city_activity_city_month ON public.user_city_activity USING
 
 
 --
+-- Name: ix_user_consent_anonymous; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_user_consent_anonymous ON public.user_consent USING btree (created_at) WHERE (user_id IS NULL);
+
+
+--
+-- Name: ix_user_consent_consent_purpose_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_user_consent_consent_purpose_id ON public.user_consent USING btree (consent_purpose_id);
+
+
+--
+-- Name: ix_user_consent_policy_version_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_user_consent_policy_version_id ON public.user_consent USING btree (policy_version_id);
+
+
+--
+-- Name: ix_user_consent_user_purpose; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_user_consent_user_purpose ON public.user_consent USING btree (user_id, consent_purpose_id, id DESC);
+
+
+--
 -- Name: ix_user_rating_rating_grade_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5814,6 +6431,13 @@ CREATE UNIQUE INDEX uq_community_join_request_pending ON public.community_join_r
 --
 
 CREATE UNIQUE INDEX uq_community_member_one_owner ON public.community_member USING btree (community_id) WHERE (role = 'owner'::public.community_role);
+
+
+--
+-- Name: uq_data_export_request_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_data_export_request_active ON public.data_export_request USING btree (user_id) WHERE (status = ANY (ARRAY['pending'::public.export_status, 'processing'::public.export_status]));
 
 
 --
@@ -6087,6 +6711,14 @@ ALTER TABLE ONLY public.conversation_member
 
 ALTER TABLE ONLY public.conversation
     ADD CONSTRAINT fk_conversation_occurrence_id FOREIGN KEY (occurrence_id) REFERENCES public.event_occurrence(id) ON DELETE CASCADE;
+
+
+--
+-- Name: data_export_request fk_data_export_request_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.data_export_request
+    ADD CONSTRAINT fk_data_export_request_user_id FOREIGN KEY (user_id) REFERENCES public.user_account(id) ON DELETE CASCADE;
 
 
 --
@@ -6530,6 +7162,30 @@ ALTER TABLE ONLY public.user_city_activity
 
 
 --
+-- Name: user_consent fk_user_consent_consent_purpose_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_consent
+    ADD CONSTRAINT fk_user_consent_consent_purpose_id FOREIGN KEY (consent_purpose_id) REFERENCES public.consent_purpose(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: user_consent fk_user_consent_policy_version_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_consent
+    ADD CONSTRAINT fk_user_consent_policy_version_id FOREIGN KEY (policy_version_id) REFERENCES public.policy_version(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: user_consent fk_user_consent_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_consent
+    ADD CONSTRAINT fk_user_consent_user_id FOREIGN KEY (user_id) REFERENCES public.user_account(id) ON DELETE SET NULL;
+
+
+--
 -- Name: user_rating fk_user_rating_rating_grade_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6651,4 +7307,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261104230000'),
     ('20261104230100'),
     ('20261105090000'),
-    ('20261105120000');
+    ('20261105120000'),
+    ('20261105150000');

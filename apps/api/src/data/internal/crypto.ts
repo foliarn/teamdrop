@@ -53,3 +53,8 @@ export function encryptDate(date: string): RawBuilder<unknown> {
 export function identityHash(value: string): RawBuilder<unknown> {
   return sql`hmac(${value}::text, ${cryptoKeys().hmac}::text, 'sha256')`;
 }
+
+/** Calls the database export function with the encryption key as a parameter, so emails and birth dates are decrypted (BR-GDP-07). */
+export function exportUserDataSql(userId: string): RawBuilder<unknown> {
+  return sql`export_user_data(${userId}::uuid, ${cryptoKeys().encryption}::text)`;
+}

@@ -19,6 +19,7 @@ export { AuditLogRepository } from './repositories/audit-log.repository';
 export { StatsRepository } from './repositories/stats.repository';
 export { BadgeRepository } from './repositories/badge.repository';
 export { AnalyticsRepository } from './repositories/analytics.repository';
+export { GdprRepository } from './repositories/gdpr.repository';
 export { ChatEventListener } from './chat-event-listener';
 export {
   DataError,
@@ -280,3 +281,15 @@ export type {
   PlatformDay,
   PlatformStats,
 } from './types/analytics.types';
+export type {
+  PolicyDocument,
+  ExportStatus,
+  PolicyVersion,
+  ConsentPurpose,
+  ConsentState,
+  ConsentRecord,
+  DataExportRequest,
+  ClaimedExport,
+  InactiveAccount,
+  ErasureOutcome,
+} from './types/gdpr.types';

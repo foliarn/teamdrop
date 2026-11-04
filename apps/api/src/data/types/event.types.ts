@@ -200,7 +200,8 @@ export type OccurrenceDetails = OccurrenceSummary & {
   /** Text address, or null when the location is hidden from the viewer (BR-EVT-09). */
   address: string | null;
   minParticipants: number | null;
-  owner: { id: string; username: string };
+  /** `null` when the owner's account was erased without a co-organizer to take over ("deleted user", BR-GDP-04). */
+  owner: { id: string; username: string } | null;
   coOrganizers: {
     id: string;
     username: string;

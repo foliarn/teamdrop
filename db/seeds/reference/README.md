@@ -11,6 +11,7 @@ Reference data loaded before the fixtures by `npm run db:fixtures` (`db/scripts/
 | `050_notification_type.sql` | The notification types and their default push / in-app values (BR-NOT-01). |
 | `060_cheer_type.sql` | The starter cheer types (BR-SOC-11). |
 | `070_report_reason.sql` | The report reasons (BR-MOD-01). |
+| `080_consent_purpose.sql` | The consent purposes (BR-GDP-01). |
 | `municipality.csv` | Versioned data file, read by `040_municipality.sql`. Do not load it by hand. |
 | `tools/fetch-municipalities.mjs` | Regenerates `municipality.csv` from the source below. Run by hand only. |
 

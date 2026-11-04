@@ -682,7 +682,7 @@ export class RegistrationRepository {
 
   /** True when the user owns or co-organizes the event. */
   private async isOrganizer(
-    event: { id: string; owner_id: string },
+    event: { id: string; owner_id: string | null },
     userId: string,
   ): Promise<boolean> {
     if (event.owner_id === userId) {
@@ -700,14 +700,18 @@ export class RegistrationRepository {
   /** Ids of the owner and of the co-organizers who count toward capacity or not. */
   private async organizerIds(event: {
     id: string;
-    owner_id: string;
+    owner_id: string | null;
   }): Promise<Set<string>> {
     const rows = await this.db
       .selectFrom('event_co_organizer')
       .select('user_id')
       .where('event_id', '=', event.id)
       .execute();
-    return new Set([event.owner_id, ...rows.map((row) => row.user_id)]);
+    const ids = new Set(rows.map((row) => row.user_id));
+    if (event.owner_id !== null) {
+      ids.add(event.owner_id);
+    }
+    return ids;
   }
 
   /** Guest names of a set of registrations, keyed by registration id. */
