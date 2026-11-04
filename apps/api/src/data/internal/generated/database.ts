@@ -797,6 +797,41 @@ export interface Follow {
   status: FollowStatus;
 }
 
+export interface HeatmapCell {
+  /**
+   * ISO weekday of the start, 1 = Monday, Europe/Paris.
+   */
+  day_of_week: number;
+  /**
+   * H3 cell of the occurrence location (BR-STA-07).
+   */
+  h3_index: string;
+  /**
+   * Hour of the start, 0 to 23, Europe/Paris.
+   */
+  hour_of_day: number;
+  /**
+   * First day of the month of the occurrence start, Europe/Paris.
+   */
+  month: string;
+  /**
+   * Completed occurrences; a cell is shown only with at least 3 (BR-STA-07).
+   */
+  occurrence_count: number;
+  /**
+   * Attended registrations plus their guests (BR-REG-05).
+   */
+  participant_count: number;
+  /**
+   * H3 resolution: 6 (France), 8 (city) or 9 (neighbourhood) (BR-STA-07).
+   */
+  resolution: number;
+  /**
+   * The sport.
+   */
+  sport_id: string;
+}
+
 export interface Message {
   /**
    * Text of the message: not blank, at most 4000 characters (BR-MSG-02). Never logged.
@@ -949,6 +984,45 @@ export interface NotificationType {
    * English name, shown until the front end has a translation (BR-TECH-12).
    */
   name: string;
+}
+
+export interface PlatformDailyStat {
+  /**
+   * Users whose last activity was that day, measured by the nightly refresh after that day; the highest measure is kept.
+   */
+  active_users: number;
+  /**
+   * Local date, Europe/Paris.
+   */
+  day: string;
+  /**
+   * Events created that day.
+   */
+  events_created: number;
+  /**
+   * No-shows on occurrences that started that day.
+   */
+  no_shows: number;
+  /**
+   * Occurrences cancelled that day.
+   */
+  occurrences_cancelled: number;
+  /**
+   * Occurrences completed that started that day.
+   */
+  occurrences_held: number;
+  /**
+   * Reports resolved or dismissed that day.
+   */
+  reports_closed: number;
+  /**
+   * Reports filed that day.
+   */
+  reports_opened: number;
+  /**
+   * Accounts created that day.
+   */
+  signups: number;
 }
 
 export interface PushSubscription {
@@ -1289,6 +1363,29 @@ export interface Sport {
   name: string;
 }
 
+export interface SportActivityDaily {
+  /**
+   * Local date of the start, Europe/Paris.
+   */
+  day: string;
+  /**
+   * Municipality or arrondissement of the occurrence (BR-ACC-19).
+   */
+  municipality_id: string;
+  /**
+   * Completed occurrences.
+   */
+  occurrence_count: number;
+  /**
+   * Attended registrations plus their guests (BR-REG-05).
+   */
+  participant_count: number;
+  /**
+   * The sport.
+   */
+  sport_id: string;
+}
+
 export interface UserAccount {
   /**
    * Path of the profile photo on the server disk, NULL when none (BR-ACC-16).
@@ -1411,6 +1508,29 @@ export interface UserBlock {
    * When the block was set.
    */
   created_at: Generated<Timestamp>;
+}
+
+export interface UserCityActivity {
+  /**
+   * Planned minutes of those sessions (BR-STA-02).
+   */
+  minutes: number;
+  /**
+   * First day of the month, Europe/Paris.
+   */
+  month: string;
+  /**
+   * City of the events: arrondissements are grouped under their parent city (BR-ACC-19, BR-STA-06).
+   */
+  municipality_id: string;
+  /**
+   * Completed sessions (BR-STA-01).
+   */
+  sessions: number;
+  /**
+   * The user; deleted with the account (per-user data, not anonymous).
+   */
+  user_id: string;
 }
 
 export interface UserRating {
@@ -1607,12 +1727,14 @@ export interface DB {
   event_co_organizer: EventCoOrganizer;
   event_occurrence: EventOccurrence;
   follow: Follow;
+  heatmap_cell: HeatmapCell;
   message: Message;
   message_reaction: MessageReaction;
   municipality: Municipality;
   notification: Notification;
   notification_preference: NotificationPreference;
   notification_type: NotificationType;
+  platform_daily_stat: PlatformDailyStat;
   push_subscription: PushSubscription;
   rating_grade: RatingGrade;
   rating_system: RatingSystem;
@@ -1623,10 +1745,12 @@ export interface DB {
   report_reason: ReportReason;
   skill_level: SkillLevel;
   sport: Sport;
+  sport_activity_daily: SportActivityDaily;
   user_account: UserAccount;
   user_availability: UserAvailability;
   user_badge: UserBadge;
   user_block: UserBlock;
+  user_city_activity: UserCityActivity;
   user_rating: UserRating;
   user_sanction: UserSanction;
   user_setting: UserSetting;

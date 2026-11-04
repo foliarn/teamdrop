@@ -1,5 +1,5 @@
 -- Extensions, created by the superuser in both databases.
--- pg_cron is intentionally NOT installed here (batch 5).
+-- pg_cron only in teamdrop_dev (cron.database_name); the jobs are scheduled by db/scripts/schedule-jobs.sh.
 \connect teamdrop_dev
 
 CREATE EXTENSION IF NOT EXISTS postgis;
@@ -12,6 +12,7 @@ CREATE EXTENSION IF NOT EXISTS citext;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 CREATE EXTENSION IF NOT EXISTS btree_gist;
+CREATE EXTENSION IF NOT EXISTS pg_cron;
 
 \connect teamdrop_test
 

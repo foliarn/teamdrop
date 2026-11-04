@@ -5,6 +5,15 @@ services:
       # Works around build-time DNS failures in some WSL setups; harmless on Docker Desktop.
       network: host
     image: teamdrop-db:dev
+    # pg_cron runs the database jobs (BR-TECH-01, DB-JOB) in teamdrop_dev only, in Europe/Paris time.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_cron
+      - -c
+      - cron.database_name=teamdrop_dev
+      - -c
+      - cron.timezone=Europe/Paris
     environment:
       POSTGRES_PASSWORD: postgres_dev
       # Used by dbmate and the scripts inside the container.

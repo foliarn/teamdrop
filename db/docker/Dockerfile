@@ -1,4 +1,4 @@
-# Local development image: PostgreSQL 18 + PostGIS 3.6 + h3-pg + pgTAP + dbmate.
+# Local development image: PostgreSQL 18 + PostGIS 3.6 + h3-pg + pg_cron + pgTAP + dbmate.
 FROM postgis/postgis:18-3.6
 
 # dbmate release (pinned). See https://github.com/amacneil/dbmate/releases
@@ -10,6 +10,7 @@ RUN apt-get update \
       ca-certificates \
       curl \
       postgresql-18-h3 \
+      postgresql-18-cron \
       postgresql-18-pgtap \
       libtap-parser-sourcehandler-pgtap-perl \
  && rm -rf /var/lib/apt/lists/*

@@ -18,6 +18,7 @@ export { SanctionRepository } from './repositories/sanction.repository';
 export { AuditLogRepository } from './repositories/audit-log.repository';
 export { StatsRepository } from './repositories/stats.repository';
 export { BadgeRepository } from './repositories/badge.repository';
+export { AnalyticsRepository } from './repositories/analytics.repository';
 export { ChatEventListener } from './chat-event-listener';
 export {
   DataError,
@@ -263,3 +264,19 @@ export type {
   UserBadge,
   AwardBadgeOutcome,
 } from './types/stats.types';
+export type {
+  HeatmapResolution,
+  Season,
+  HeatmapFilters,
+  HeatmapCell,
+  RankingPeriod,
+  RankingMetric,
+  CityRanking,
+  TrendWindow,
+  AreaFilter,
+  PopularSport,
+  TrendTotals,
+  Trend,
+  PlatformDay,
+  PlatformStats,
+} from './types/analytics.types';

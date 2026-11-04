@@ -106,6 +106,8 @@ Filled in as each batch lands. The TSDoc on each method is the reference.
 - `StatsRepository`: profile statistics computed on demand (completed sessions, planned hours, people met, main sport by sessions and by hours, specialist or all-rounder, current and longest streaks), the reliability rate (all time and last 90 days, hidden until 5 past occurrences), both gated by the profile section visibility, and the progress data your badge code uses (`getBadgeProgress`, never returned to clients as is).
 - `BadgeRepository`: the badge catalog with optional tiers (back office; the badges themselves are not defined yet), awards and removes badges (your code decides, in real time), lists a user's badges (gated by the badges visibility), and the unseen unlocks for the animation.
 
+- `AnalyticsRepository`: reads the anonymous aggregates the database refreshes (nightly; the current month's ranking hourly): heatmap hexagons (shown from 3 occurrences), the viewer's city rankings (shown from 100 active users, users hiding from rankings left out), popular sports and trends over a rolling month, season or year compared with the previous window, and the back-office statistics. Nothing is recomputed in NestJS; you schedule nothing for these.
+
 Example: a "looking for players" broadcast (BR-SOC-08) is a circle message plus a push.
 
 ```ts
