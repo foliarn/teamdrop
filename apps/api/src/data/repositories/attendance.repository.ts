@@ -14,6 +14,7 @@ import {
   endedSql,
   occurrenceTiming,
 } from '../internal/attendance';
+import { writeAudit } from '../internal/audit';
 import { mapDbError } from '../internal/db-errors';
 import type { DB } from '../internal/generated/database';
 import { KYSELY } from '../internal/kysely';
@@ -44,6 +45,7 @@ const DEFAULT_JOB_LIMIT = 500;
 
 /** Constraints of the attendance tables, mapped to typed errors. */
 const ATTENDANCE_CONSTRAINTS: Record<string, () => DataError> = {
+  fk_audit_log_actor_id: () => new NotFoundError('User not found'),
   uq_attendance_dispute_registration_id: () => new DisputeAlreadyExistsError(),
   fk_attendance_dispute_registration_id: () =>
     new NotFoundError('Registration not found'),
@@ -462,6 +464,13 @@ export class AttendanceRepository {
           })
           .where('id', '=', disputeId)
           .execute();
+        // BR-MOD-05: every moderator action is audited.
+        await writeAudit(trx, moderatorId, {
+          action: 'dispute.resolved',
+          targetTable: 'attendance_dispute',
+          targetId: disputeId,
+          details: { registrationId: found.registration_id, uphold },
+        });
         return { userId: found.user_id };
       });
     } catch (err) {

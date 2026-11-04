@@ -15,6 +15,10 @@ import { RegistrationRepository } from './repositories/registration.repository';
 import { AttendanceRepository } from './repositories/attendance.repository';
 import { MessageRepository } from './repositories/message.repository';
 import { NotificationRepository } from './repositories/notification.repository';
+import { CheerRepository } from './repositories/cheer.repository';
+import { ReportRepository } from './repositories/report.repository';
+import { SanctionRepository } from './repositories/sanction.repository';
+import { AuditLogRepository } from './repositories/audit-log.repository';
 import { CHAT_LISTENER_URL, ChatEventListener } from './chat-event-listener';
 import { requiredEnv } from './internal/env';
 
@@ -36,6 +40,10 @@ import { requiredEnv } from './internal/env';
     AttendanceRepository,
     MessageRepository,
     NotificationRepository,
+    CheerRepository,
+    ReportRepository,
+    SanctionRepository,
+    AuditLogRepository,
     {
       provide: CHAT_LISTENER_URL,
       useFactory: () => requiredEnv('DATABASE_URL_APP'),
@@ -56,6 +64,10 @@ import { requiredEnv } from './internal/env';
     AttendanceRepository,
     MessageRepository,
     NotificationRepository,
+    CheerRepository,
+    ReportRepository,
+    SanctionRepository,
+    AuditLogRepository,
     ChatEventListener,
   ],
 })

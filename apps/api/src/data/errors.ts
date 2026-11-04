@@ -263,3 +263,26 @@ export class NotConversationMemberError extends DataError {
     super('NOT_CONVERSATION_MEMBER', message);
   }
 }
+
+/** A cheer needs a completed occurrence that both users attended (BR-SOC-11). */
+export class CheerNotAllowedError extends DataError {
+  constructor(
+    message = 'Cheers need a completed occurrence both users attended',
+  ) {
+    super('CHEER_NOT_ALLOWED', message);
+  }
+}
+
+/** The giver already cheered this recipient for this occurrence: one cheer per giver, recipient and occurrence (BR-SOC-11). */
+export class AlreadyCheeredError extends DataError {
+  constructor(message = 'Already cheered for this occurrence') {
+    super('ALREADY_CHEERED', message);
+  }
+}
+
+/** The email or the Google identity belongs to a permanently banned user (BR-MOD-04). */
+export class IdentityBannedError extends DataError {
+  constructor(message = 'This identity is banned') {
+    super('IDENTITY_BANNED', message);
+  }
+}

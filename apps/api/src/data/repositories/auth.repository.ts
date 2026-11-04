@@ -19,6 +19,7 @@ import { mapDbError } from '../internal/db-errors';
 import type { DB } from '../internal/generated/database';
 import { emailHash, encryptDate, encryptEmail } from '../internal/crypto';
 import { KYSELY } from '../internal/kysely';
+import { assertIdentityNotBanned, findActiveBan } from '../internal/sanctions';
 import { tokenHash } from '../internal/token-hash';
 import { isAtLeastAge, isLocalDate, parisToday } from '../internal/time';
 import type {
@@ -86,7 +87,7 @@ export class AuthRepository {
    * Europe/Paris), BR-ACC-04 (email and birth date encrypted, email blind index), BR-ACC-05 (password identity),
    * BR-ACC-13 (municipality), BR-ACC-15 (default settings).
    * Errors: `UnderMinimumAgeError`; `UsernameTakenError`; `EmailTakenError`; `InvalidReferenceError` (unknown
-   * municipality); `InvalidInputError` (malformed birth date).
+   * municipality); `InvalidInputError` (malformed birth date); `IdentityBannedError` (banned email, BR-MOD-04).
    * Outcome: the new user id.
    */
   async createUserWithPassword(
@@ -95,7 +96,8 @@ export class AuthRepository {
     assertMinimumAge(input.birthDate);
     try {
       return await this.db.transaction().execute(async (trx) => {
-        // TODO(batch 3): reject banned identities (BR-MOD-04)
+        // BR-MOD-04: a banned email cannot sign up again.
+        await assertIdentityNotBanned(trx, { email: input.email });
         const user = await trx
           .insertInto('user_account')
           .values({
@@ -136,7 +138,8 @@ export class AuthRepository {
    *
    * Rules: BR-ACC-01, BR-ACC-02, BR-ACC-03, BR-ACC-04, BR-ACC-05 (one identity per Google subject), BR-ACC-06.
    * Errors: `UnderMinimumAgeError`; `EmailBelongsToExistingAccountError` (the email already has an account);
-   * `UsernameTakenError`; `GoogleAlreadyLinkedError`; `InvalidReferenceError` (unknown municipality).
+   * `UsernameTakenError`; `GoogleAlreadyLinkedError`; `InvalidReferenceError` (unknown municipality);
+   * `IdentityBannedError` (banned email or Google identity, BR-MOD-04).
    * Outcome: the new user id. `email_verified_at` is set to now() when `emailVerified` is true.
    */
   async createUserWithGoogle(
@@ -145,7 +148,11 @@ export class AuthRepository {
     assertMinimumAge(input.birthDate);
     try {
       return await this.db.transaction().execute(async (trx) => {
-        // TODO(batch 3): reject banned identities (BR-MOD-04)
+        // BR-MOD-04: a banned email or Google identity cannot sign up again.
+        await assertIdentityNotBanned(trx, {
+          email: input.email,
+          googleSubject: input.googleSubject,
+        });
         const user = await trx
           .insertInto('user_account')
           .values({
@@ -186,7 +193,8 @@ export class AuthRepository {
    *
    * Rules: BR-ACC-04, BR-ACC-07.
    * Errors: none expected.
-   * Outcome: the login data (with the password hash, or `null` for a Google-only account), or `null` when no account matches.
+   * Outcome: the login data (with the password hash, or `null` for a Google-only account, and the ban in force or
+   * `null`), or `null` when no account matches. Refuse the login when `activeBan` is set (BR-MOD-03).
    * Note: returns `passwordHash`, which is allowed here only for authentication.
    */
   async findLoginByEmail(email: string): Promise<LoginInfo | null> {
@@ -216,6 +224,8 @@ export class AuthRepository {
         emailVerified: row.email_verified_at !== null,
         role: row.role,
         deletionRequestedAt: row.deletion_requested_at,
+        // BR-MOD-03: the developers refuse the login while a ban is in force.
+        activeBan: await findActiveBan(this.db, row.user_id),
       };
     } catch (err) {
       throw mapDbError(err);
@@ -225,13 +235,16 @@ export class AuthRepository {
   /**
    * Finds the account linked to a Google subject.
    *
-   * Rules: BR-ACC-05.
+   * Rules: BR-ACC-05, BR-MOD-03.
    * Errors: none expected.
-   * Outcome: the user id and role, or `null` when no account is linked to this subject.
+   * Outcome: the user id, role and ban in force (refuse the login when set), or `null` when no account is linked to
+   * this subject.
    */
-  async findUserByGoogleSubject(
-    subject: string,
-  ): Promise<{ userId: string; role: LoginInfo['role'] } | null> {
+  async findUserByGoogleSubject(subject: string): Promise<{
+    userId: string;
+    role: LoginInfo['role'];
+    activeBan: LoginInfo['activeBan'];
+  } | null> {
     try {
       const row = await this.db
         .selectFrom('auth_identity as ai')
@@ -243,7 +256,11 @@ export class AuthRepository {
       if (row === undefined) {
         return null;
       }
-      return { userId: row.user_id, role: row.role };
+      return {
+        userId: row.user_id,
+        role: row.role,
+        activeBan: await findActiveBan(this.db, row.user_id),
+      };
     } catch (err) {
       throw mapDbError(err);
     }
@@ -253,11 +270,14 @@ export class AuthRepository {
    * Links a Google identity to an existing account.
    *
    * Rules: BR-ACC-05 (a Google subject is unique; one Google identity per account), BR-ACC-06 (no merging).
-   * Errors: `GoogleAlreadyLinkedError` when the subject or the account already has a Google identity; `NotFoundError`.
+   * Errors: `GoogleAlreadyLinkedError` when the subject or the account already has a Google identity; `NotFoundError`;
+   * `IdentityBannedError` (BR-MOD-04).
    * Outcome: nothing.
    */
   async linkGoogle(userId: string, googleSubject: string): Promise<void> {
     try {
+      // BR-MOD-04: a banned Google identity cannot be linked.
+      await assertIdentityNotBanned(this.db, { googleSubject });
       await this.db
         .insertInto('auth_identity')
         .values({

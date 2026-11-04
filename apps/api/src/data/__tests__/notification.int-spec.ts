@@ -62,6 +62,7 @@ describe('Notifications (batch 2)', () => {
           'circle_invitation',
           'community_join_decided',
           'dispute_resolved',
+          'cheer_received',
         ].sort(),
       );
       expect(types.find((t) => t.code === 'new_message')).toMatchObject({

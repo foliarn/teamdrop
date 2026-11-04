@@ -125,3 +125,36 @@ export async function notifyChat(
 
 /** First characters of a message body, for previews. */
 export const PREVIEW_LENGTH = 200;
+
+/**
+ * Hard-deletes a message inside the caller's transaction (BR-MSG-03), after moving the read pointers on it back to the
+ * previous message of the conversation (BR-MSG-02), and sends `message_deleted`. Returns the conversation id, or `null`
+ * when the message does not exist.
+ */
+export async function deleteMessageRow(
+  trx: Kysely<DB>,
+  messageId: string,
+): Promise<string | null> {
+  const row = await trx
+    .selectFrom('message')
+    .select(['id', 'conversation_id'])
+    .where('id', '=', messageId)
+    .forUpdate()
+    .executeTakeFirst();
+  if (row === undefined) {
+    return null;
+  }
+  await sql`
+    UPDATE conversation_member
+    SET last_read_message_id = (
+      SELECT p.id FROM message p
+      WHERE p.conversation_id = ${row.conversation_id}::uuid AND p.id < ${messageId}::uuid
+      ORDER BY p.id DESC LIMIT 1
+    )
+    WHERE conversation_id = ${row.conversation_id}::uuid
+      AND last_read_message_id = ${messageId}::uuid
+  `.execute(trx);
+  await trx.deleteFrom('message').where('id', '=', messageId).execute();
+  await notifyChat(trx, 'message_deleted', row.conversation_id, messageId);
+  return row.conversation_id;
+}

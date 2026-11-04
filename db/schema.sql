@@ -173,6 +173,16 @@ CREATE TYPE public.auth_provider AS ENUM (
 
 
 --
+-- Name: banned_identity_kind; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.banned_identity_kind AS ENUM (
+    'email',
+    'google_subject'
+);
+
+
+--
 -- Name: circle_invitation_status; Type: TYPE; Schema: public; Owner: -
 --
 
@@ -351,6 +361,30 @@ CREATE TYPE public.registration_status AS ENUM (
     'declined',
     'cancelled',
     'removed'
+);
+
+
+--
+-- Name: report_status; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.report_status AS ENUM (
+    'open',
+    'assigned',
+    'resolved',
+    'dismissed'
+);
+
+
+--
+-- Name: sanction_kind; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.sanction_kind AS ENUM (
+    'warning',
+    'temporary_ban',
+    'permanent_ban',
+    'content_removal'
 );
 
 
@@ -615,6 +649,86 @@ COMMENT ON COLUMN public.attendance_dispute.resolved_at IS 'When the moderator d
 
 
 --
+-- Name: audit_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_log (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    actor_id uuid,
+    action text NOT NULL,
+    target_table text,
+    target_id uuid,
+    report_id uuid,
+    details jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ck_audit_log_details_object CHECK (((details IS NULL) OR (jsonb_typeof(details) = 'object'::text)))
+);
+
+
+--
+-- Name: TABLE audit_log; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.audit_log IS 'Every moderator and admin action, and the circle admin and organizer actions without a dedicated column; kept 3 years (BR-MOD-05, BR-GDP-09).';
+
+
+--
+-- Name: COLUMN audit_log.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.audit_log.id IS 'Primary key, UUID v7 (time-ordered).';
+
+
+--
+-- Name: COLUMN audit_log.actor_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.audit_log.actor_id IS 'Who acted; NULL after erasure.';
+
+
+--
+-- Name: COLUMN audit_log.action; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.audit_log.action IS 'Stable action code, for example report.resolved or registration.removed.';
+
+
+--
+-- Name: COLUMN audit_log.target_table; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.audit_log.target_table IS 'Table of the target row, if any.';
+
+
+--
+-- Name: COLUMN audit_log.target_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.audit_log.target_id IS 'Id of the target row; no foreign key, so the entry outlives the target.';
+
+
+--
+-- Name: COLUMN audit_log.report_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.audit_log.report_id IS 'Report the action belongs to, if any.';
+
+
+--
+-- Name: COLUMN audit_log.details; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.audit_log.details IS 'JSON object of ids and codes; never emails, birth dates, tokens or message bodies.';
+
+
+--
+-- Name: COLUMN audit_log.created_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.audit_log.created_at IS 'When the action happened; purged after 3 years (BR-MOD-05).';
+
+
+--
 -- Name: auth_identity; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -684,6 +798,180 @@ COMMENT ON COLUMN public.auth_identity.created_at IS 'Creation instant of the lo
 --
 
 COMMENT ON COLUMN public.auth_identity.last_used_at IS 'Last instant this login method was used, NULL when never used.';
+
+
+--
+-- Name: banned_identity; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.banned_identity (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    identity_kind public.banned_identity_kind NOT NULL,
+    identity_hash bytea NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE banned_identity; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.banned_identity IS 'Hashes of the identities of permanently banned users, kept after erasure to prevent signing up again (BR-MOD-04).';
+
+
+--
+-- Name: COLUMN banned_identity.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.banned_identity.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN banned_identity.identity_kind; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.banned_identity.identity_kind IS 'email or google_subject (BR-MOD-04).';
+
+
+--
+-- Name: COLUMN banned_identity.identity_hash; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.banned_identity.identity_hash IS 'Keyed HMAC-SHA256 of the normalized email (same as user_account.email_hash) or of the Google subject. Never the clear value.';
+
+
+--
+-- Name: COLUMN banned_identity.created_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.banned_identity.created_at IS 'When the identity was banned.';
+
+
+--
+-- Name: cheer; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.cheer (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    occurrence_id uuid NOT NULL,
+    giver_id uuid,
+    recipient_id uuid NOT NULL,
+    cheer_type_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ck_cheer_not_self CHECK (((giver_id IS NULL) OR (giver_id <> recipient_id)))
+);
+
+
+--
+-- Name: TABLE cheer; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.cheer IS 'A typed cheer from one participant to another after an occurrence; at most one per giver, recipient and occurrence (BR-SOC-11).';
+
+
+--
+-- Name: COLUMN cheer.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.cheer.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN cheer.occurrence_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.cheer.occurrence_id IS 'The completed occurrence both users attended (BR-SOC-11).';
+
+
+--
+-- Name: COLUMN cheer.giver_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.cheer.giver_id IS 'Who gave it, seen only by the recipient (BR-SOC-12); NULL after erasure of the giver, the recipient keeps it (BR-GDP-05).';
+
+
+--
+-- Name: COLUMN cheer.recipient_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.cheer.recipient_id IS 'Who received it (BR-SOC-11).';
+
+
+--
+-- Name: COLUMN cheer.cheer_type_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.cheer.cheer_type_id IS 'The cheer type; a type in use cannot be deleted.';
+
+
+--
+-- Name: COLUMN cheer.created_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.cheer.created_at IS 'When the cheer was given; there is no deadline (BR-SOC-11).';
+
+
+--
+-- Name: cheer_type; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.cheer_type (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    code text NOT NULL,
+    name text NOT NULL,
+    icon text,
+    is_active boolean DEFAULT true NOT NULL,
+    sort_order smallint NOT NULL
+);
+
+
+--
+-- Name: TABLE cheer_type; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.cheer_type IS 'Reference list of cheer types, managed from the back office (BR-SOC-11, BR-TECH-12).';
+
+
+--
+-- Name: COLUMN cheer_type.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.cheer_type.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN cheer_type.code; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.cheer_type.code IS 'Stable English code used by the code and the front end i18n files (BR-TECH-12).';
+
+
+--
+-- Name: COLUMN cheer_type.name; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.cheer_type.name IS 'English name, shown until the front end has a translation (BR-TECH-12).';
+
+
+--
+-- Name: COLUMN cheer_type.icon; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.cheer_type.icon IS 'Optional icon name or path.';
+
+
+--
+-- Name: COLUMN cheer_type.is_active; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.cheer_type.is_active IS 'Inactive types cannot be given any more; cheers already given keep them.';
+
+
+--
+-- Name: COLUMN cheer_type.sort_order; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.cheer_type.sort_order IS 'Display order, lowest first.';
 
 
 --
@@ -2557,6 +2845,183 @@ COMMENT ON COLUMN public.registration_guest.created_at IS 'When the guest was ad
 
 
 --
+-- Name: report; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.report (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    reporter_id uuid,
+    report_reason_id uuid NOT NULL,
+    target_user_id uuid,
+    target_event_id uuid,
+    target_message_id uuid,
+    details text,
+    status public.report_status DEFAULT 'open'::public.report_status NOT NULL,
+    assigned_moderator_id uuid,
+    resolution_note text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    assigned_at timestamp with time zone,
+    closed_at timestamp with time zone,
+    CONSTRAINT ck_report_assigned_at CHECK (((status = 'open'::public.report_status) OR (assigned_at IS NOT NULL) OR (status = 'dismissed'::public.report_status))),
+    CONSTRAINT ck_report_at_most_one_target CHECK ((num_nonnulls(target_user_id, target_event_id, target_message_id) <= 1)),
+    CONSTRAINT ck_report_closed_at CHECK (((status = ANY (ARRAY['resolved'::public.report_status, 'dismissed'::public.report_status])) = (closed_at IS NOT NULL)))
+);
+
+
+--
+-- Name: TABLE report; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.report IS 'A complaint about one user, event or message, handled by a moderator (BR-MOD-01, BR-MOD-02).';
+
+
+--
+-- Name: COLUMN report.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN report.reporter_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report.reporter_id IS 'Who filed it; NULL after erasure, the report is kept (BR-GDP-04).';
+
+
+--
+-- Name: COLUMN report.report_reason_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report.report_reason_id IS 'The reason (BR-MOD-01).';
+
+
+--
+-- Name: COLUMN report.target_user_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report.target_user_id IS 'Reported user; NULL for another target or after erasure (BR-MOD-01, BR-GDP-04).';
+
+
+--
+-- Name: COLUMN report.target_event_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report.target_event_id IS 'Reported event; NULL for another target or after deletion (BR-MOD-01).';
+
+
+--
+-- Name: COLUMN report.target_message_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report.target_message_id IS 'Reported message, kept from the purge while the report is open (BR-MSG-05); NULL for another target or after deletion.';
+
+
+--
+-- Name: COLUMN report.details; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report.details IS 'Optional free text from the reporter.';
+
+
+--
+-- Name: COLUMN report.status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report.status IS 'open, assigned, resolved or dismissed (BR-MOD-02).';
+
+
+--
+-- Name: COLUMN report.assigned_moderator_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report.assigned_moderator_id IS 'Moderator in charge (BR-MOD-02); NULL while open or after erasure.';
+
+
+--
+-- Name: COLUMN report.resolution_note; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report.resolution_note IS 'What the moderator decided, written when closing.';
+
+
+--
+-- Name: COLUMN report.created_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report.created_at IS 'When the report was filed.';
+
+
+--
+-- Name: COLUMN report.assigned_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report.assigned_at IS 'When a moderator was last assigned.';
+
+
+--
+-- Name: COLUMN report.closed_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report.closed_at IS 'When the report was resolved or dismissed; NULL while open or assigned.';
+
+
+--
+-- Name: report_reason; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.report_reason (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    code text NOT NULL,
+    name text NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    sort_order smallint NOT NULL
+);
+
+
+--
+-- Name: TABLE report_reason; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.report_reason IS 'Reference list of report reasons, managed from the back office (BR-MOD-01, BR-TECH-12).';
+
+
+--
+-- Name: COLUMN report_reason.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report_reason.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN report_reason.code; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report_reason.code IS 'Stable English code used by the code and the front end i18n files (BR-TECH-12).';
+
+
+--
+-- Name: COLUMN report_reason.name; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report_reason.name IS 'English name, shown until the front end has a translation (BR-TECH-12).';
+
+
+--
+-- Name: COLUMN report_reason.is_active; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report_reason.is_active IS 'Inactive reasons cannot be chosen any more; reports already filed keep them.';
+
+
+--
+-- Name: COLUMN report_reason.sort_order; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.report_reason.sort_order IS 'Display order, lowest first.';
+
+
+--
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3009,6 +3474,103 @@ COMMENT ON COLUMN public.user_rating.updated_at IS 'Last update instant (maintai
 
 
 --
+-- Name: user_sanction; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_sanction (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    user_id uuid NOT NULL,
+    kind public.sanction_kind NOT NULL,
+    reason text NOT NULL,
+    report_id uuid,
+    issued_by_id uuid,
+    starts_at timestamp with time zone DEFAULT now() NOT NULL,
+    ends_at timestamp with time zone,
+    revoked_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ck_user_sanction_ends_at CHECK ((((kind = 'temporary_ban'::public.sanction_kind) = (ends_at IS NOT NULL)) AND ((ends_at IS NULL) OR (ends_at > starts_at)))),
+    CONSTRAINT ck_user_sanction_reason_not_blank CHECK ((reason ~ '[^[:space:]]'::text))
+);
+
+
+--
+-- Name: TABLE user_sanction; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.user_sanction IS 'A sanction: warning, temporary ban, permanent ban or content removal (BR-MOD-03).';
+
+
+--
+-- Name: COLUMN user_sanction.id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_sanction.id IS 'Primary key, UUID v7.';
+
+
+--
+-- Name: COLUMN user_sanction.user_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_sanction.user_id IS 'The sanctioned user.';
+
+
+--
+-- Name: COLUMN user_sanction.kind; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_sanction.kind IS 'warning, temporary_ban, permanent_ban or content_removal (BR-MOD-03).';
+
+
+--
+-- Name: COLUMN user_sanction.reason; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_sanction.reason IS 'Reason given by the moderator.';
+
+
+--
+-- Name: COLUMN user_sanction.report_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_sanction.report_id IS 'The report that led to it, if any.';
+
+
+--
+-- Name: COLUMN user_sanction.issued_by_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_sanction.issued_by_id IS 'Moderator who issued it; NULL after erasure.';
+
+
+--
+-- Name: COLUMN user_sanction.starts_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_sanction.starts_at IS 'When it takes effect.';
+
+
+--
+-- Name: COLUMN user_sanction.ends_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_sanction.ends_at IS 'End of a temporary ban (length chosen by the moderator, BR-MOD-03); NULL for every other kind.';
+
+
+--
+-- Name: COLUMN user_sanction.revoked_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_sanction.revoked_at IS 'When a moderator lifted it early; NULL otherwise.';
+
+
+--
+-- Name: COLUMN user_sanction.created_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_sanction.created_at IS 'When it was recorded.';
+
+
+--
 -- Name: user_setting; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3270,11 +3832,43 @@ ALTER TABLE ONLY public.attendance_dispute
 
 
 --
+-- Name: audit_log pk_audit_log; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_log
+    ADD CONSTRAINT pk_audit_log PRIMARY KEY (id);
+
+
+--
 -- Name: auth_identity pk_auth_identity; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.auth_identity
     ADD CONSTRAINT pk_auth_identity PRIMARY KEY (id);
+
+
+--
+-- Name: banned_identity pk_banned_identity; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.banned_identity
+    ADD CONSTRAINT pk_banned_identity PRIMARY KEY (id);
+
+
+--
+-- Name: cheer pk_cheer; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cheer
+    ADD CONSTRAINT pk_cheer PRIMARY KEY (id);
+
+
+--
+-- Name: cheer_type pk_cheer_type; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cheer_type
+    ADD CONSTRAINT pk_cheer_type PRIMARY KEY (id);
 
 
 --
@@ -3478,6 +4072,22 @@ ALTER TABLE ONLY public.registration_guest
 
 
 --
+-- Name: report pk_report; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report
+    ADD CONSTRAINT pk_report PRIMARY KEY (id);
+
+
+--
+-- Name: report_reason pk_report_reason; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report_reason
+    ADD CONSTRAINT pk_report_reason PRIMARY KEY (id);
+
+
+--
 -- Name: skill_level pk_skill_level; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3523,6 +4133,14 @@ ALTER TABLE ONLY public.user_block
 
 ALTER TABLE ONLY public.user_rating
     ADD CONSTRAINT pk_user_rating PRIMARY KEY (user_id, rating_system_id);
+
+
+--
+-- Name: user_sanction pk_user_sanction; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_sanction
+    ADD CONSTRAINT pk_user_sanction PRIMARY KEY (id);
 
 
 --
@@ -3587,6 +4205,30 @@ ALTER TABLE ONLY public.auth_identity
 
 ALTER TABLE ONLY public.auth_identity
     ADD CONSTRAINT uq_auth_identity_user_provider UNIQUE (user_id, provider);
+
+
+--
+-- Name: banned_identity uq_banned_identity_kind_hash; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.banned_identity
+    ADD CONSTRAINT uq_banned_identity_kind_hash UNIQUE (identity_kind, identity_hash);
+
+
+--
+-- Name: cheer uq_cheer_giver_recipient_occurrence; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cheer
+    ADD CONSTRAINT uq_cheer_giver_recipient_occurrence UNIQUE (giver_id, recipient_id, occurrence_id);
+
+
+--
+-- Name: cheer_type uq_cheer_type_code; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cheer_type
+    ADD CONSTRAINT uq_cheer_type_code UNIQUE (code);
 
 
 --
@@ -3686,6 +4328,14 @@ ALTER TABLE ONLY public.refresh_token
 
 
 --
+-- Name: report_reason uq_report_reason_code; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report_reason
+    ADD CONSTRAINT uq_report_reason_code UNIQUE (code);
+
+
+--
 -- Name: skill_level uq_skill_level_code; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3744,6 +4394,55 @@ CREATE INDEX ix_attendance_dispute_open ON public.attendance_dispute USING btree
 --
 
 CREATE INDEX ix_attendance_dispute_resolved_by_id ON public.attendance_dispute USING btree (resolved_by_id);
+
+
+--
+-- Name: ix_audit_log_actor_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_audit_log_actor_id ON public.audit_log USING btree (actor_id);
+
+
+--
+-- Name: ix_audit_log_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_audit_log_created_at ON public.audit_log USING btree (created_at);
+
+
+--
+-- Name: ix_audit_log_report_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_audit_log_report_id ON public.audit_log USING btree (report_id);
+
+
+--
+-- Name: ix_audit_log_target; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_audit_log_target ON public.audit_log USING btree (target_table, target_id);
+
+
+--
+-- Name: ix_cheer_cheer_type_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_cheer_cheer_type_id ON public.cheer USING btree (cheer_type_id);
+
+
+--
+-- Name: ix_cheer_occurrence_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_cheer_occurrence_id ON public.cheer USING btree (occurrence_id);
+
+
+--
+-- Name: ix_cheer_recipient_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_cheer_recipient_id ON public.cheer USING btree (recipient_id);
 
 
 --
@@ -4125,6 +4824,55 @@ CREATE INDEX ix_registration_user_id ON public.registration USING btree (user_id
 
 
 --
+-- Name: ix_report_assigned_moderator_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_report_assigned_moderator_id ON public.report USING btree (assigned_moderator_id);
+
+
+--
+-- Name: ix_report_queue; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_report_queue ON public.report USING btree (created_at) WHERE (status = ANY (ARRAY['open'::public.report_status, 'assigned'::public.report_status]));
+
+
+--
+-- Name: ix_report_report_reason_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_report_report_reason_id ON public.report USING btree (report_reason_id);
+
+
+--
+-- Name: ix_report_reporter_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_report_reporter_id ON public.report USING btree (reporter_id);
+
+
+--
+-- Name: ix_report_target_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_report_target_event_id ON public.report USING btree (target_event_id);
+
+
+--
+-- Name: ix_report_target_message_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_report_target_message_id ON public.report USING btree (target_message_id);
+
+
+--
+-- Name: ix_report_target_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_report_target_user_id ON public.report USING btree (target_user_id);
+
+
+--
 -- Name: ix_user_account_municipality_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4164,6 +4912,27 @@ CREATE INDEX ix_user_rating_rating_grade_id ON public.user_rating USING btree (r
 --
 
 CREATE INDEX ix_user_rating_rating_system_id ON public.user_rating USING btree (rating_system_id);
+
+
+--
+-- Name: ix_user_sanction_issued_by_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_user_sanction_issued_by_id ON public.user_sanction USING btree (issued_by_id);
+
+
+--
+-- Name: ix_user_sanction_report_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_user_sanction_report_id ON public.user_sanction USING btree (report_id);
+
+
+--
+-- Name: ix_user_sanction_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_user_sanction_user_id ON public.user_sanction USING btree (user_id);
 
 
 --
@@ -4310,11 +5079,59 @@ ALTER TABLE ONLY public.attendance_dispute
 
 
 --
+-- Name: audit_log fk_audit_log_actor_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_log
+    ADD CONSTRAINT fk_audit_log_actor_id FOREIGN KEY (actor_id) REFERENCES public.user_account(id) ON DELETE SET NULL;
+
+
+--
+-- Name: audit_log fk_audit_log_report_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_log
+    ADD CONSTRAINT fk_audit_log_report_id FOREIGN KEY (report_id) REFERENCES public.report(id) ON DELETE SET NULL;
+
+
+--
 -- Name: auth_identity fk_auth_identity_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.auth_identity
     ADD CONSTRAINT fk_auth_identity_user_id FOREIGN KEY (user_id) REFERENCES public.user_account(id) ON DELETE CASCADE;
+
+
+--
+-- Name: cheer fk_cheer_cheer_type_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cheer
+    ADD CONSTRAINT fk_cheer_cheer_type_id FOREIGN KEY (cheer_type_id) REFERENCES public.cheer_type(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: cheer fk_cheer_giver_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cheer
+    ADD CONSTRAINT fk_cheer_giver_id FOREIGN KEY (giver_id) REFERENCES public.user_account(id) ON DELETE SET NULL;
+
+
+--
+-- Name: cheer fk_cheer_occurrence_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cheer
+    ADD CONSTRAINT fk_cheer_occurrence_id FOREIGN KEY (occurrence_id) REFERENCES public.event_occurrence(id) ON DELETE CASCADE;
+
+
+--
+-- Name: cheer fk_cheer_recipient_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cheer
+    ADD CONSTRAINT fk_cheer_recipient_id FOREIGN KEY (recipient_id) REFERENCES public.user_account(id) ON DELETE CASCADE;
 
 
 --
@@ -4750,6 +5567,54 @@ ALTER TABLE ONLY public.registration
 
 
 --
+-- Name: report fk_report_assigned_moderator_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report
+    ADD CONSTRAINT fk_report_assigned_moderator_id FOREIGN KEY (assigned_moderator_id) REFERENCES public.user_account(id) ON DELETE SET NULL;
+
+
+--
+-- Name: report fk_report_report_reason_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report
+    ADD CONSTRAINT fk_report_report_reason_id FOREIGN KEY (report_reason_id) REFERENCES public.report_reason(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: report fk_report_reporter_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report
+    ADD CONSTRAINT fk_report_reporter_id FOREIGN KEY (reporter_id) REFERENCES public.user_account(id) ON DELETE SET NULL;
+
+
+--
+-- Name: report fk_report_target_event_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report
+    ADD CONSTRAINT fk_report_target_event_id FOREIGN KEY (target_event_id) REFERENCES public.event(id) ON DELETE SET NULL;
+
+
+--
+-- Name: report fk_report_target_message_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report
+    ADD CONSTRAINT fk_report_target_message_id FOREIGN KEY (target_message_id) REFERENCES public.message(id) ON DELETE SET NULL;
+
+
+--
+-- Name: report fk_report_target_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.report
+    ADD CONSTRAINT fk_report_target_user_id FOREIGN KEY (target_user_id) REFERENCES public.user_account(id) ON DELETE SET NULL;
+
+
+--
 -- Name: user_account fk_user_account_municipality_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4803,6 +5668,30 @@ ALTER TABLE ONLY public.user_rating
 
 ALTER TABLE ONLY public.user_rating
     ADD CONSTRAINT fk_user_rating_user_id FOREIGN KEY (user_id) REFERENCES public.user_account(id) ON DELETE CASCADE;
+
+
+--
+-- Name: user_sanction fk_user_sanction_issued_by_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_sanction
+    ADD CONSTRAINT fk_user_sanction_issued_by_id FOREIGN KEY (issued_by_id) REFERENCES public.user_account(id) ON DELETE SET NULL;
+
+
+--
+-- Name: user_sanction fk_user_sanction_report_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_sanction
+    ADD CONSTRAINT fk_user_sanction_report_id FOREIGN KEY (report_id) REFERENCES public.report(id) ON DELETE SET NULL;
+
+
+--
+-- Name: user_sanction fk_user_sanction_user_id; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_sanction
+    ADD CONSTRAINT fk_user_sanction_user_id FOREIGN KEY (user_id) REFERENCES public.user_account(id) ON DELETE CASCADE;
 
 
 --
@@ -4875,4 +5764,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261102211403'),
     ('20261102220118'),
     ('20261104210000'),
-    ('20261104210100');
+    ('20261104210100'),
+    ('20261104230000'),
+    ('20261104230100');

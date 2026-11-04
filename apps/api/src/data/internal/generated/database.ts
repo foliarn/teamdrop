@@ -11,6 +11,8 @@ export type AttendanceStatus = "attended" | "excused" | "no_show";
 
 export type AuthProvider = "google" | "password";
 
+export type BannedIdentityKind = "email" | "google_subject";
+
 export type CircleInvitationStatus = "accepted" | "awaiting_admin" | "awaiting_invitee" | "cancelled" | "declined" | "rejected_by_admin";
 
 export type CircleRole = "admin" | "member" | "owner";
@@ -60,6 +62,10 @@ export type RatingValueKind = "graded" | "numeric";
 export type RegistrationMode = "approval" | "automatic";
 
 export type RegistrationStatus = "cancelled" | "confirmed" | "declined" | "pending_approval" | "removed" | "waitlisted";
+
+export type ReportStatus = "assigned" | "dismissed" | "open" | "resolved";
+
+export type SanctionKind = "content_removal" | "permanent_ban" | "temporary_ban" | "warning";
 
 export type SportEnvironment = "both" | "indoor" | "outdoor";
 
@@ -131,6 +137,41 @@ export interface AttendanceDispute {
   status: Generated<DisputeStatus>;
 }
 
+export interface AuditLog {
+  /**
+   * Stable action code, for example report.resolved or registration.removed.
+   */
+  action: string;
+  /**
+   * Who acted; NULL after erasure.
+   */
+  actor_id: string | null;
+  /**
+   * When the action happened; purged after 3 years (BR-MOD-05).
+   */
+  created_at: Generated<Timestamp>;
+  /**
+   * JSON object of ids and codes; never emails, birth dates, tokens or message bodies.
+   */
+  details: Json | null;
+  /**
+   * Primary key, UUID v7 (time-ordered).
+   */
+  id: Generated<string>;
+  /**
+   * Report the action belongs to, if any.
+   */
+  report_id: string | null;
+  /**
+   * Id of the target row; no foreign key, so the entry outlives the target.
+   */
+  target_id: string | null;
+  /**
+   * Table of the target row, if any.
+   */
+  target_table: string | null;
+}
+
 export interface AuthIdentity {
   /**
    * Creation instant of the login method.
@@ -160,6 +201,79 @@ export interface AuthIdentity {
    * Owner account; identities are deleted with the account.
    */
   user_id: string;
+}
+
+export interface BannedIdentity {
+  /**
+   * When the identity was banned.
+   */
+  created_at: Generated<Timestamp>;
+  /**
+   * Primary key, UUID v7.
+   */
+  id: Generated<string>;
+  /**
+   * Keyed HMAC-SHA256 of the normalized email (same as user_account.email_hash) or of the Google subject. Never the clear value.
+   */
+  identity_hash: Buffer;
+  /**
+   * email or google_subject (BR-MOD-04).
+   */
+  identity_kind: BannedIdentityKind;
+}
+
+export interface Cheer {
+  /**
+   * The cheer type; a type in use cannot be deleted.
+   */
+  cheer_type_id: string;
+  /**
+   * When the cheer was given; there is no deadline (BR-SOC-11).
+   */
+  created_at: Generated<Timestamp>;
+  /**
+   * Who gave it, seen only by the recipient (BR-SOC-12); NULL after erasure of the giver, the recipient keeps it (BR-GDP-05).
+   */
+  giver_id: string | null;
+  /**
+   * Primary key, UUID v7.
+   */
+  id: Generated<string>;
+  /**
+   * The completed occurrence both users attended (BR-SOC-11).
+   */
+  occurrence_id: string;
+  /**
+   * Who received it (BR-SOC-11).
+   */
+  recipient_id: string;
+}
+
+export interface CheerType {
+  /**
+   * Stable English code used by the code and the front end i18n files (BR-TECH-12).
+   */
+  code: string;
+  /**
+   * Optional icon name or path.
+   */
+  icon: string | null;
+  /**
+   * Primary key, UUID v7.
+   */
+  id: Generated<string>;
+  /**
+   * Inactive types cannot be given any more; cheers already given keep them.
+   */
+  is_active: Generated<boolean>;
+  /**
+   * English name, shown until the front end has a translation (BR-TECH-12).
+   */
+  name: string;
+  /**
+   * Display order, lowest first.
+   */
+  sort_order: number;
 }
 
 export interface Circle {
@@ -973,6 +1087,84 @@ export interface RegistrationGuest {
   registration_id: string;
 }
 
+export interface Report {
+  /**
+   * When a moderator was last assigned.
+   */
+  assigned_at: Timestamp | null;
+  /**
+   * Moderator in charge (BR-MOD-02); NULL while open or after erasure.
+   */
+  assigned_moderator_id: string | null;
+  /**
+   * When the report was resolved or dismissed; NULL while open or assigned.
+   */
+  closed_at: Timestamp | null;
+  /**
+   * When the report was filed.
+   */
+  created_at: Generated<Timestamp>;
+  /**
+   * Optional free text from the reporter.
+   */
+  details: string | null;
+  /**
+   * Primary key, UUID v7.
+   */
+  id: Generated<string>;
+  /**
+   * The reason (BR-MOD-01).
+   */
+  report_reason_id: string;
+  /**
+   * Who filed it; NULL after erasure, the report is kept (BR-GDP-04).
+   */
+  reporter_id: string | null;
+  /**
+   * What the moderator decided, written when closing.
+   */
+  resolution_note: string | null;
+  /**
+   * open, assigned, resolved or dismissed (BR-MOD-02).
+   */
+  status: Generated<ReportStatus>;
+  /**
+   * Reported event; NULL for another target or after deletion (BR-MOD-01).
+   */
+  target_event_id: string | null;
+  /**
+   * Reported message, kept from the purge while the report is open (BR-MSG-05); NULL for another target or after deletion.
+   */
+  target_message_id: string | null;
+  /**
+   * Reported user; NULL for another target or after erasure (BR-MOD-01, BR-GDP-04).
+   */
+  target_user_id: string | null;
+}
+
+export interface ReportReason {
+  /**
+   * Stable English code used by the code and the front end i18n files (BR-TECH-12).
+   */
+  code: string;
+  /**
+   * Primary key, UUID v7.
+   */
+  id: Generated<string>;
+  /**
+   * Inactive reasons cannot be chosen any more; reports already filed keep them.
+   */
+  is_active: Generated<boolean>;
+  /**
+   * English name, shown until the front end has a translation (BR-TECH-12).
+   */
+  name: string;
+  /**
+   * Display order, lowest first.
+   */
+  sort_order: number;
+}
+
 export interface SkillLevel {
   /**
    * Stable English code, unique (BR-TECH-12).
@@ -1163,6 +1355,49 @@ export interface UserRating {
   user_id: string;
 }
 
+export interface UserSanction {
+  /**
+   * When it was recorded.
+   */
+  created_at: Generated<Timestamp>;
+  /**
+   * End of a temporary ban (length chosen by the moderator, BR-MOD-03); NULL for every other kind.
+   */
+  ends_at: Timestamp | null;
+  /**
+   * Primary key, UUID v7.
+   */
+  id: Generated<string>;
+  /**
+   * Moderator who issued it; NULL after erasure.
+   */
+  issued_by_id: string | null;
+  /**
+   * warning, temporary_ban, permanent_ban or content_removal (BR-MOD-03).
+   */
+  kind: SanctionKind;
+  /**
+   * Reason given by the moderator.
+   */
+  reason: string;
+  /**
+   * The report that led to it, if any.
+   */
+  report_id: string | null;
+  /**
+   * When a moderator lifted it early; NULL otherwise.
+   */
+  revoked_at: Timestamp | null;
+  /**
+   * When it takes effect.
+   */
+  starts_at: Generated<Timestamp>;
+  /**
+   * The sanctioned user.
+   */
+  user_id: string;
+}
+
 export interface UserSetting {
   /**
    * Who can see the badges section (BR-ACC-14).
@@ -1271,7 +1506,11 @@ export interface Venue {
 export interface DB {
   account_token: AccountToken;
   attendance_dispute: AttendanceDispute;
+  audit_log: AuditLog;
   auth_identity: AuthIdentity;
+  banned_identity: BannedIdentity;
+  cheer: Cheer;
+  cheer_type: CheerType;
   circle: Circle;
   circle_invitation: CircleInvitation;
   circle_member: CircleMember;
@@ -1297,12 +1536,15 @@ export interface DB {
   refresh_token: RefreshToken;
   registration: Registration;
   registration_guest: RegistrationGuest;
+  report: Report;
+  report_reason: ReportReason;
   skill_level: SkillLevel;
   sport: Sport;
   user_account: UserAccount;
   user_availability: UserAvailability;
   user_block: UserBlock;
   user_rating: UserRating;
+  user_sanction: UserSanction;
   user_setting: UserSetting;
   user_sport: UserSport;
   venue: Venue;

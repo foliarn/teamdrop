@@ -12,6 +12,10 @@ export { RegistrationRepository } from './repositories/registration.repository';
 export { AttendanceRepository } from './repositories/attendance.repository';
 export { MessageRepository } from './repositories/message.repository';
 export { NotificationRepository } from './repositories/notification.repository';
+export { CheerRepository } from './repositories/cheer.repository';
+export { ReportRepository } from './repositories/report.repository';
+export { SanctionRepository } from './repositories/sanction.repository';
+export { AuditLogRepository } from './repositories/audit-log.repository';
 export { ChatEventListener } from './chat-event-listener';
 export {
   DataError,
@@ -51,6 +55,9 @@ export {
   DisputeWindowClosedError,
   DisputeAlreadyExistsError,
   NotConversationMemberError,
+  CheerNotAllowedError,
+  AlreadyCheeredError,
+  IdentityBannedError,
 } from './errors';
 export type {
   LocalDate,
@@ -208,3 +215,35 @@ export type {
   SavePushSubscriptionInput,
   MyPushSubscription,
 } from './types/notification.types';
+export type {
+  CheerType,
+  CreateCheerTypeInput,
+  UpdateCheerTypePatch,
+  CheerableParticipant,
+  ReceivedCheer,
+  CheerCount,
+} from './types/cheer.types';
+export type {
+  ReportStatus,
+  SanctionKind,
+  ReportReason,
+  CreateReportReasonInput,
+  UpdateReportReasonPatch,
+  ReportTargetInput,
+  CreateReportInput,
+  ReportTarget,
+  ReportSummary,
+  ReportTargetDetails,
+  ReportDetails,
+  MyReport,
+  ListReportsFilter,
+  IssueSanctionInput,
+  Sanction,
+  ActiveBan,
+  RemoveMessageOutcome,
+  AuditAction,
+  AuditEntryInput,
+  AuditEntry,
+  ListAuditFilter,
+  AuditPage,
+} from './types/moderation.types';

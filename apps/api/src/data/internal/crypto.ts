@@ -48,3 +48,8 @@ export function emailHash(email: string): RawBuilder<unknown> {
 export function encryptDate(date: string): RawBuilder<unknown> {
   return encryptText(date);
 }
+
+/** HMAC-SHA256 of an identity value used as is (for example a Google subject), for banned identities (BR-MOD-04). */
+export function identityHash(value: string): RawBuilder<unknown> {
+  return sql`hmac(${value}::text, ${cryptoKeys().hmac}::text, 'sha256')`;
+}

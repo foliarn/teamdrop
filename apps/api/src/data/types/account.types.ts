@@ -1,3 +1,4 @@
+import type { ActiveBan } from './moderation.types';
 import type { LocalDate, LocalTime } from './common.types';
 import type { Municipality } from './reference.types';
 
@@ -120,6 +121,8 @@ export type LoginInfo = {
   emailVerified: boolean;
   role: UserRole;
   deletionRequestedAt: Date | null;
+  /** The ban in force, or `null`. The developers refuse the login while it is set (BR-MOD-03). */
+  activeBan: ActiveBan | null;
 };
 
 /** A user found by `searchUsers`. */

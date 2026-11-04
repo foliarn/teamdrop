@@ -12,6 +12,7 @@ import {
   OwnerCannotBeRemovedError,
   SelfActionError,
 } from '../errors';
+import { writeAudit } from '../internal/audit';
 import { mapDbError } from '../internal/db-errors';
 import type { DB } from '../internal/generated/database';
 import { KYSELY } from '../internal/kysely';
@@ -289,17 +290,16 @@ export class CircleRepository {
   /**
    * Rejects a member's invitation: `awaiting_admin` becomes `rejected_by_admin`.
    * Rules: BR-SOC-06. The developers check that `adminId` is an owner or admin of the circle.
-   * The data model records no rejecting admin (`approved_by_id` is for approvals), so `adminId` is not stored.
+   * The rejecting admin is recorded in the audit log (`circle.invitation_rejected`, BR-MOD-05).
    * Errors: `NotFoundError`, `InvalidStateError`.
    * Outcome: none.
    */
   async rejectInvitation(invitationId: string, adminId: string): Promise<void> {
-    void adminId;
     try {
       await this.db.transaction().execute(async (trx) => {
         const invitation = await trx
           .selectFrom('circle_invitation')
-          .select('status')
+          .select(['status', 'circle_id', 'invitee_id'])
           .where('id', '=', invitationId)
           .forUpdate()
           .executeTakeFirst();
@@ -316,9 +316,21 @@ export class CircleRepository {
           .set({ status: 'rejected_by_admin', responded_at: new Date() })
           .where('id', '=', invitationId)
           .execute();
+        // BR-MOD-05 (handover item 6): who rejected is kept in the audit log.
+        await writeAudit(trx, adminId, {
+          action: 'circle.invitation_rejected',
+          targetTable: 'circle_invitation',
+          targetId: invitationId,
+          details: {
+            circleId: invitation.circle_id,
+            inviteeId: invitation.invitee_id,
+          },
+        });
       });
     } catch (err) {
-      throw mapDbError(err);
+      throw mapDbError(err, {
+        fk_audit_log_actor_id: () => new NotFoundError('User not found'),
+      });
     }
   }
 

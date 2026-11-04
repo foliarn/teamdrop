@@ -13,6 +13,7 @@ import {
   accessibleConversationIds,
   assertConversationAccess,
   conversationUserIds,
+  deleteMessageRow,
   hasConversationAccess,
   notifyChat,
 } from '../internal/conversations';
@@ -445,34 +446,12 @@ export class MessageRepository {
   async deleteMessage(messageId: string): Promise<DeleteMessageOutcome> {
     try {
       return await this.db.transaction().execute(async (trx) => {
-        const row = await trx
-          .selectFrom('message')
-          .select(['id', 'conversation_id'])
-          .where('id', '=', messageId)
-          .forUpdate()
-          .executeTakeFirst();
-        if (row === undefined) {
+        // BR-MSG-03: hard delete; BR-MSG-02: read pointers move back to the previous message.
+        const conversationId = await deleteMessageRow(trx, messageId);
+        if (conversationId === null) {
           throw new NotFoundError('Message not found');
         }
-        // BR-MSG-02: keep the read state. Pointers on the deleted message move to the previous one.
-        await sql`
-          UPDATE conversation_member
-          SET last_read_message_id = (
-            SELECT p.id FROM message p
-            WHERE p.conversation_id = ${row.conversation_id}::uuid AND p.id < ${messageId}::uuid
-            ORDER BY p.id DESC LIMIT 1
-          )
-          WHERE conversation_id = ${row.conversation_id}::uuid
-            AND last_read_message_id = ${messageId}::uuid
-        `.execute(trx);
-        await trx.deleteFrom('message').where('id', '=', messageId).execute();
-        await notifyChat(
-          trx,
-          'message_deleted',
-          row.conversation_id,
-          messageId,
-        );
-        return { conversationId: row.conversation_id };
+        return { conversationId };
       });
     } catch (err) {
       throw mapDbError(err, MESSAGE_CONSTRAINTS);

@@ -11,6 +11,7 @@ import {
   OccurrenceFullError,
   OccurrenceNotOpenError,
 } from '../errors';
+import { writeAudit } from '../internal/audit';
 import { mapDbError } from '../internal/db-errors';
 import type { DB } from '../internal/generated/database';
 import { KYSELY } from '../internal/kysely';
@@ -50,6 +51,7 @@ const ADULT_AGE = 18;
 
 /** Constraints of `registration` and `registration_guest`, mapped to typed errors. */
 const REGISTRATION_CONSTRAINTS: Record<string, () => DataError> = {
+  fk_audit_log_actor_id: () => new NotFoundError('User not found'),
   uq_registration_active: () => new AlreadyRegisteredError(),
   fk_registration_occurrence_id: () =>
     new NotFoundError('Occurrence not found'),
@@ -410,7 +412,7 @@ export class RegistrationRepository {
 
   /**
    * Removes an active participant (BR-REG-02). A confirmed place is freed, so the waitlist is promoted in automatic mode.
-   * The organizer's id is accepted for the developers' audit trail; the schema keeps no column for it.
+   * The organizer who removed the participant is recorded in the audit log (`registration.removed`, BR-MOD-05).
    * Permission: organizers, checked by the developers.
    * Errors: `NotFoundError`, `InvalidStateError` (not active).
    * Outcome: the promoted users, to notify.
@@ -419,7 +421,6 @@ export class RegistrationRepository {
     registrationId: string,
     byUserId: string,
   ): Promise<PromotionOutcome> {
-    void byUserId;
     try {
       return await this.db.transaction().execute(async (trx) => {
         const { occurrence, event } = await lockRegistrationOccurrence(
@@ -445,6 +446,13 @@ export class RegistrationRepository {
           .set({ status: 'removed', cancelled_at: sql<Date>`now()` })
           .where('id', '=', registrationId)
           .execute();
+        // BR-MOD-05 (handover item 6): who removed the participant is kept in the audit log.
+        await writeAudit(trx, byUserId, {
+          action: 'registration.removed',
+          targetTable: 'registration',
+          targetId: registrationId,
+          details: { occurrenceId: occurrence.id, eventId: event.id },
+        });
         if (!wasConfirmed) {
           return { promotedUserIds: [] };
         }

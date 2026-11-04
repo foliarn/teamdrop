@@ -61,6 +61,7 @@ describe('AuthRepository', () => {
       emailVerified: false,
       role: 'user',
       deletionRequestedAt: null,
+      activeBan: null,
     });
   });
 
@@ -128,6 +129,7 @@ describe('AuthRepository', () => {
     await expect(repo.findUserByGoogleSubject('google-bob')).resolves.toEqual({
       userId,
       role: 'user',
+      activeBan: null,
     });
     await expect(
       repo.findLoginByEmail('bob@example.test'),
